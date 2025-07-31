@@ -1,47 +1,50 @@
-# Use official Python image
+# Use a slim Python base image
 FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Set environment variables to avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies required by Playwright
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
     curl \
     gnupg \
-    wget \
-    unzip \
-    fonts-liberation \
+    ca-certificates \
     libnss3 \
     libatk-bridge2.0-0 \
-    libgtk-3-0 \
-    libxss1 \
-    libasound2 \
-    libx11-xcb1 \
-    libxcb-dri3-0 \
-    libdrm2 \
+    libxcomposite1 \
     libxdamage1 \
     libxrandr2 \
     libgbm1 \
-    xvfb \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libpango-1.0-0 \
+    libatk1.0-0 \
+    libgtk-3-0 \
+    libgstreamer-plugins-bad1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-libav \
+    libenchant-2-2 \
+    libsecret-1-0 \
+    libmanette-0.2-0 \
+    libgles2 \
+    && echo "✅ System dependencies installed successfully" \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set work directory
+
+# Set working directory inside container
 WORKDIR /app
 
-# Copy your files
-COPY . /app
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Python dependencies
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt \
-    && playwright install chromium
+# Install Playwright and its Chromium browser
+RUN pip install playwright==1.47.0 && playwright install chromium
 
-# Ensure the login file exists (or handle it in code)
-RUN touch zomato_login.json
+# Copy application code
+COPY . .
 
-# Optional: expose port if needed (e.g., for Flask)
-# EXPOSE 8000
-
-# Run your script using xvfb-run to simulate a display (in case headless gets overridden)
-CMD ["xvfb-run", "--auto-servernum", "python", "main.py"]
+# Start the Python application
+CMD ["xvfb-run", "--auto-servernum", "python", "reviewsz.py"]
