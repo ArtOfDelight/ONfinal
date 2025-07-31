@@ -1,0 +1,6 @@
+playwright
+python-dotenv
+gspread
+oauth2client
+google-generativeai
+requests
