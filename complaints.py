@@ -131,7 +131,7 @@ def extract_structured_data(complaint_id, block_2, image_url):
 
 def scrape_and_push_complaints():
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context(storage_state="swiggy_login.json")
         page = context.new_page()
 
