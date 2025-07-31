@@ -47,4 +47,4 @@ RUN pip install playwright==1.47.0 && playwright install chromium
 COPY . .
 
 # Start the Python application
-CMD ["xvfb-run", "--auto-servernum", "python", "main.py"]
+CMD ["python", "main.py"]
