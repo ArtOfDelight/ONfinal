@@ -162,7 +162,15 @@ def scrape_and_push_reviews():
     existing_hashes = get_existing_order_hashes(worksheet) # Use hashes for deduplication
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+        browser = browser = p.chromium.launch(headless=True, args=[
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
+            "--single-process",
+            "--disable-accelerated-2d-canvas",
+            "--no-zygote",
+            "--disable-features=VizDisplayCompositor"])
         context = browser.new_context(storage_state=LOGIN_STORAGE_FILE)
         page = context.new_page()
         page.goto(URL)

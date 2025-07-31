@@ -159,7 +159,17 @@ def scrape_and_push_complaints():
     print(f"📊 Loaded {len(seen_hashes)} existing complaint hashes from sheet.")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+        browser = browser = p.chromium.launch(headless=True, args=[
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
+            "--single-process",
+            "--disable-accelerated-2d-canvas",
+            "--no-zygote",
+            "--disable-features=VizDisplayCompositor"
+])
+
         context = browser.new_context(storage_state="zomato_login.json")
         page = context.new_page()
         page.goto("https://www.zomato.com/partners/onlineordering/customerIssues/")
