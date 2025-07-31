@@ -191,9 +191,7 @@ def click_and_extract_reviews(page):
                 continue
 
             print("📋 Raw Review Text Extracted (last 1500 chars):")
-            print("-" * 60)
-            print(full_text[-1500:]) # Print only the end of the text for brevity
-            print("-" * 60)
+          
 
             parsed = parse_review_with_gemini(full_text)
             if parsed:
