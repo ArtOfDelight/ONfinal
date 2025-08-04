@@ -11,19 +11,19 @@ from reviewsz import scrape_and_push_reviews as scrape_zomato_reviews
 if __name__ == "__main__":
     print("🚀 Starting Multi-Platform Automation Sequence...")
 
-    # #--- Swiggy Complaints ---
-    # try:
-    #     print("\n📂 Step 1: Fetching Swiggy Complaints...")
-    #     scrape_swiggy_complaints()
-    # except Exception as e:
-    #     print(f"❌ Swiggy Complaints scraper failed: {e}")
+    #--- Swiggy Complaints ---
+    try:
+        print("\n📂 Step 1: Fetching Swiggy Complaints...")
+        scrape_swiggy_complaints()
+    except Exception as e:
+        print(f"❌ Swiggy Complaints scraper failed: {e}")
 
-    # # --- Swiggy Reviews ---
-    # try:
-    #     print("\n📂 Step 2: Fetching Swiggy Reviews...")
-    #     scrape_swiggy_reviews()
-    # except Exception as e:
-    #     print(f"❌ Swiggy Reviews scraper failed: {e}")
+    # --- Swiggy Reviews ---
+    try:
+        print("\n📂 Step 2: Fetching Swiggy Reviews...")
+        scrape_swiggy_reviews()
+    except Exception as e:
+        print(f"❌ Swiggy Reviews scraper failed: {e}")
 
     #--- Zomato Complaints ---
     try:
