@@ -8,6 +8,7 @@ import time
 import json
 import hashlib
 from dotenv import load_dotenv
+from pyvirtualdisplay import Display
 
 # === Load environment variables and API keys ===
 load_dotenv()
@@ -16,7 +17,7 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 # Google Sheets setup
 CREDENTIALS_FILE = "service_account.json"
 SHEET_NAME = "Swiggy Zomato Dashboard"
-WORKSHEET_NAME = "Zomato Complaints" # Ensure this matches your sheet tab name
+WORKSHEET_NAME = "Zomato Complaints"  # Ensure this matches your sheet tab name
 
 def init_gsheet():
     """Initializes and returns the Google Sheet worksheet object."""
@@ -29,7 +30,7 @@ def init_gsheet():
         return sheet
     except Exception as e:
         print(f"❌ Error connecting to Google Sheet: {e}")
-        raise # Re-raise to stop execution if sheet connection fails
+        raise  # Re-raise to stop execution if sheet connection fails
 
 OUTLET_IDS = [
     "19595894", "19595967", "19501574", "20547934", "20647827", "20183353", "57750", "21134281", "20996205", "19501520", "18422924",
@@ -119,7 +120,7 @@ def append_complaint_to_sheet(sheet, parsed_complaint: dict, seen_hashes: set):
         complaint_hash = generate_complaint_hash(parsed_complaint)
         if complaint_hash in seen_hashes:
             print(f"⏭️ Duplicate complaint detected for ID: {complaint_id}. Hash: {complaint_hash}")
-            return # Skip appending if duplicate
+            return  # Skip appending if duplicate
 
         # Define the order of columns as they should appear in the sheet
         row_data = [
@@ -172,7 +173,7 @@ def scrape_and_push_complaints():
     sheet = init_gsheet()
 
     print("📊 Loading existing complaints from sheet for deduplication...")
-    existing_rows = sheet.get_all_values()[1:] # Skip header row
+    existing_rows = sheet.get_all_values()[1:]  # Skip header row
     seen_hashes = set()
     for row in existing_rows:
         if len(row) > 4:
@@ -183,196 +184,220 @@ def scrape_and_push_complaints():
                 seen_hashes.add(complaint_hash)
     print(f"📊 Loaded {len(seen_hashes)} existing complaint hashes from sheet.")
 
-    with sync_playwright() as p:
-        # Launch browser with proper headless configuration for Docker
-        browser = p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--single-process",
-                "--disable-gpu",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-features=TranslateUI",
-                "--disable-ipc-flooding-protection",
-                "--disable-web-security",
-                "--disable-features=VizDisplayCompositor",
-                "--window-size=1920,1080"
-            ]
-        )
+    # Start virtual display
+    display = Display(visible=0, size=(1920, 1080))
+    display.start()
+    print("🖥️ Virtual display started.")
 
-        # Create context with storage state
-        try:
-            context = browser.new_context(
-                storage_state="zomato_login.json",
-                viewport={"width": 1920, "height": 1080}
+    try:
+        with sync_playwright() as p:
+            # Launch browser in headed mode on virtual display
+            browser = p.chromium.launch(
+                headless=False,  # Run in headed mode for virtual display
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--disable-blink-features=AutomationControlled',
+                    '--window-size=1920,1080'
+                ]
             )
-        except Exception as e:
-            print(f"⚠️ Could not load storage state: {e}. Creating new context.")
-            context = browser.new_context(viewport={"width": 1920, "height": 1080})
 
-        page = context.new_page()
-        
-        # Set longer timeout for navigation
-        page.set_default_timeout(30000)
-        
-        try:
-            print("🌐 Navigating to Zomato partner portal...")
-            page.goto("https://www.zomato.com/partners/onlineordering/customerIssues/", wait_until="networkidle")
-            page.wait_for_timeout(5000)
+            # Create context with anti-detection settings
+            try:
+                context = browser.new_context(
+                    storage_state="zomato_login.json" if os.path.exists("zomato_login.json") else None,
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    java_script_enabled=True,
+                    ignore_https_errors=True
+                )
 
-            # Handle potential popups/overlays
-            print("🔧 Handling potential popups...")
-            for y in [200, 300, 400]:
-                try:
-                    page.mouse.click(1100, y)
-                    page.wait_for_timeout(500)
-                except:
-                    pass
+                # Add anti-detection script to spoof browser properties
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => false
+                    });
+                    window.navigator.chrome = {
+                        runtime: {}
+                    };
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3]
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en']
+                    });
+                """)
+            except Exception as e:
+                print(f"⚠️ Could not load storage state or create context: {e}. Creating new context.")
+                context = browser.new_context(
+                    viewport={"width": 1920, "height": 1080},
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
 
-            for idx, outlet_id in enumerate(OUTLET_IDS):
-                print(f"\n🔁 Processing Outlet ID: {outlet_id} ({idx + 1}/{len(OUTLET_IDS)})")
+            page = context.new_page()
+            
+            # Set longer timeout for navigation
+            page.set_default_timeout(30000)
+            
+            try:
+                print("🌐 Navigating to Zomato partner portal...")
+                page.goto("https://www.zomato.com/partners/onlineordering/customerIssues/", wait_until="networkidle")
+                page.wait_for_timeout(5000)
 
-                try:
-                    # Wait for and click outlet dropdown
-                    dropdown_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[1]/div/div[2]/span"
-                    
-                    if not wait_for_element_with_retry(page, dropdown_selector):
-                        print(f"❌ Could not find outlet dropdown for {outlet_id}. Skipping.")
-                        continue
-                    
-                    page.click(dropdown_selector)
-                    page.wait_for_timeout(1000)
+                # Handle potential popups/overlays
+                print("🔧 Handling potential popups...")
+                for y in [200, 300, 400]:
+                    try:
+                        page.mouse.click(1100, y)
+                        page.wait_for_timeout(500)
+                    except:
+                        pass
 
-                    # Clear previous selection if not first outlet
-                    if idx > 0:
-                        prev_id = OUTLET_IDS[idx - 1]
-                        try:
-                            page.locator(f"text=ID: {prev_id}").first.click()
-                            page.wait_for_timeout(500)
-                        except:
-                            pass
+                for idx, outlet_id in enumerate(OUTLET_IDS):
+                    print(f"\n🔁 Processing Outlet ID: {outlet_id} ({idx + 1}/{len(OUTLET_IDS)})")
 
-                    # Enter outlet ID
-                    input_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[2]/div[1]/div/div/div/div/div/div/div/input"
-                    page.fill(input_selector, outlet_id)
-                    page.wait_for_timeout(1500)
-                    
-                    # Select the outlet
-                    page.locator(f"text=ID: {outlet_id}").first.click()
-                    page.wait_for_timeout(800)
+                    try:
+                        # Wait for and click outlet dropdown
+                        dropdown_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[1]/div/div[2]/span"
+                        
+                        if not wait_for_element_with_retry(page, dropdown_selector):
+                            print(f"❌ Could not find outlet dropdown for {outlet_id}. Skipping.")
+                            continue
+                        
+                        page.click(dropdown_selector)
+                        page.wait_for_timeout(1000)
 
-                    # Click apply/search button
-                    apply_button_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[2]/div[4]/div[2]"
-                    page.click(apply_button_selector)
-                    page.wait_for_timeout(3000)
-
-                    # Find view details buttons
-                    view_buttons = page.locator(".css-1ttmdgu > .css-c4te0e > .css-19i1v5i").filter(has_text="View details")
-                    total = view_buttons.count()
-                    print(f"🔍 Found {total} complaints for outlet {outlet_id}.")
-
-                    if total == 0:
-                        print(f"ℹ️ No complaints found for outlet {outlet_id}. Moving to next outlet.")
-                        continue
-
-                    for i in range(total):
-                        try:
-                            print(f"\n🕵️ Processing complaint {i+1}/{total} for outlet {outlet_id}")
-                            
-                            # Re-locate view buttons to avoid stale references
-                            view_buttons = page.locator(".css-1ttmdgu > .css-c4te0e > .css-19i1v5i").filter(has_text="View details")
-                            
-                            if view_buttons.count() <= i:
-                                print(f"⚠️ Not enough 'View details' buttons found for complaint {i+1}/{total}. Skipping.")
-                                continue
-
-                            # Click view details
-                            view_buttons.nth(i).scroll_into_view_if_needed()
-                            page.wait_for_timeout(500)
-                            view_buttons.nth(i).click()
-                            page.wait_for_timeout(3000)
-
-                            # Try to click "Order details" if available
+                        # Clear previous selection if not first outlet
+                        if idx > 0:
+                            prev_id = OUTLET_IDS[idx - 1]
                             try:
-                                order_details_xpath = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[2]/div/div[1]/div[3]/div[1]/div/div[2]/div/div[2]"
-                                if page.locator(order_details_xpath).first.is_visible(timeout=2000):
-                                    page.locator(order_details_xpath).first.click()
-                                    page.wait_for_timeout(1500)
-                            except Exception:
-                                print("    ℹ️ 'Order details' not found or not clickable. Continuing...")
+                                page.locator(f"text=ID: {prev_id}").first.click()
+                                page.wait_for_timeout(500)
+                            except:
+                                pass
 
-                            # Extract complaint text
-                            raw_text = page.locator("body").inner_text(timeout=10000)
+                        # Enter outlet ID
+                        input_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[2]/div[1]/div/div/div/div/div/div/div/input"
+                        page.fill(input_selector, outlet_id)
+                        page.wait_for_timeout(1500)
+                        
+                        # Select the outlet
+                        page.locator(f"text=ID: {outlet_id}").first.click()
+                        page.wait_for_timeout(800)
 
-                            # Parse with Gemini
-                            parsed_complaint = parse_complaint_with_gemini(raw_text, outlet_id)
+                        # Click apply/search button
+                        apply_button_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[2]/div[4]/div[2]"
+                        page.click(apply_button_selector)
+                        page.wait_for_timeout(3000)
 
-                            if parsed_complaint:
-                                complaint_id = parsed_complaint.get("Complaint ID", "").strip()
-                                status = parsed_complaint.get("Status", "").upper()
+                        # Find view details buttons
+                        view_buttons = page.locator(".css-1ttmdgu > .css-c4te0e > .css-19i1v5i").filter(has_text="View details")
+                        total = view_buttons.count()
+                        print(f"🔍 Found {total} complaints for outlet {outlet_id}.")
 
-                                if complaint_id:
-                                    print(f"✅ Parsed complaint {complaint_id} (Status: {status})")
-                                    append_complaint_to_sheet(sheet, parsed_complaint, seen_hashes)
-                                else:
-                                    print(f"⚠️ Skipped: No valid Complaint ID found")
-                            else:
-                                print(f"❌ Failed to parse complaint {i+1}")
-
-                            # Close modal
-                            page.keyboard.press("Escape")
-                            page.wait_for_timeout(2000)
-
-                            # Verify modal is closed and refresh page for next complaint
-                            if i < total - 1:  # Don't refresh on last complaint
-                                print("    🔄 Refreshing for next complaint...")
-                                page.reload(wait_until="networkidle")
-                                page.wait_for_timeout(3000)
-
-                                # Handle popups after refresh
-                                for y in [200, 300, 400]:
-                                    try:
-                                        page.mouse.click(1100, y)
-                                        page.wait_for_timeout(500)
-                                    except:
-                                        pass
-
-                                # Re-select outlet
-                                page.click(dropdown_selector)
-                                page.wait_for_timeout(1000)
-                                page.fill(input_selector, outlet_id)
-                                page.wait_for_timeout(1500)
-                                page.locator(f"text=ID: {outlet_id}").first.click()
-                                page.wait_for_timeout(800)
-                                page.click(apply_button_selector)
-                                page.wait_for_timeout(3000)
-
-                        except Exception as e:
-                            print(f"❌ Error processing complaint {i+1}/{total} for outlet {outlet_id}: {e}")
-                            # Try to close any open modals
-                            page.keyboard.press("Escape")
-                            page.wait_for_timeout(1000)
+                        if total == 0:
+                            print(f"ℹ️ No complaints found for outlet {outlet_id}. Moving to next outlet.")
                             continue
 
-                except Exception as e:
-                    print(f"❌ Error processing outlet {outlet_id}: {e}")
-                    continue
+                        for i in range(total):
+                            try:
+                                print(f"\n🕵️ Processing complaint {i+1}/{total} for outlet {outlet_id}")
+                                
+                                # Re-locate view buttons to avoid stale references
+                                view_buttons = page.locator(".css-1ttmdgu > .css-c4te0e > .css-19i1v5i").filter(has_text="View details")
+                                
+                                if view_buttons.count() <= i:
+                                    print(f"⚠️ Not enough 'View details' buttons found for complaint {i+1}/{total}. Skipping.")
+                                    continue
 
-                print(f"✅ Completed outlet {outlet_id}")
-                page.wait_for_timeout(2000)
+                                # Click view details
+                                view_buttons.nth(i).scroll_into_view_if_needed()
+                                page.wait_for_timeout(500)
+                                view_buttons.nth(i).click()
+                                page.wait_for_timeout(3000)
 
-        except Exception as e:
-            print(f"❌ Critical error during scraping: {e}")
-        finally:
-            print("🧹 Cleaning up...")
-            browser.close()
+                                # Try to click "Order details" if available
+                                try:
+                                    order_details_xpath = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[2]/div/div[1]/div[3]/div[1]/div/div[2]/div/div[2]"
+                                    if page.locator(order_details_xpath).first.is_visible(timeout=2000):
+                                        page.locator(order_details_xpath).first.click()
+                                        page.wait_for_timeout(1500)
+                                except Exception:
+                                    print("    ℹ️ 'Order details' not found or not clickable. Continuing...")
+
+                                # Extract complaint text
+                                raw_text = page.locator("body").inner_text(timeout=10000)
+
+                                # Parse with Gemini
+                                parsed_complaint = parse_complaint_with_gemini(raw_text, outlet_id)
+
+                                if parsed_complaint:
+                                    complaint_id = parsed_complaint.get("Complaint ID", "").strip()
+                                    status = parsed_complaint.get("Status", "").upper()
+
+                                    if complaint_id:
+                                        print(f"✅ Parsed complaint {complaint_id} (Status: {status})")
+                                        append_complaint_to_sheet(sheet, parsed_complaint, seen_hashes)
+                                    else:
+                                        print(f"⚠️ Skipped: No valid Complaint ID found")
+                                else:
+                                    print(f"❌ Failed to parse complaint {i+1}")
+
+                                # Close modal
+                                page.keyboard.press("Escape")
+                                page.wait_for_timeout(2000)
+
+                                # Verify modal is closed and refresh page for next complaint
+                                if i < total - 1:  # Don't refresh on last complaint
+                                    print("    🔄 Refreshing for next complaint...")
+                                    page.reload(wait_until="networkidle")
+                                    page.wait_for_timeout(3000)
+
+                                    # Handle popups after refresh
+                                    for y in [200, 300, 400]:
+                                        try:
+                                            page.mouse.click(1100, y)
+                                            page.wait_for_timeout(500)
+                                        except:
+                                            pass
+
+                                    # Re-select outlet
+                                    page.click(dropdown_selector)
+                                    page.wait_for_timeout(1000)
+                                    page.fill(input_selector, outlet_id)
+                                    page.wait_for_timeout(1500)
+                                    page.locator(f"text=ID: {outlet_id}").first.click()
+                                    page.wait_for_timeout(800)
+                                    page.click(apply_button_selector)
+                                    page.wait_for_timeout(3000)
+
+                            except Exception as e:
+                                print(f"❌ Error processing complaint {i+1}/{total} for outlet {outlet_id}: {e}")
+                                # Try to close any open modals
+                                page.keyboard.press("Escape")
+                                page.wait_for_timeout(1000)
+                                continue
+
+                    except Exception as e:
+                        print(f"❌ Error processing outlet {outlet_id}: {e}")
+                        continue
+
+                    print(f"✅ Completed outlet {outlet_id}")
+                    page.wait_for_timeout(2000)
+
+            except Exception as e:
+                print(f"❌ Critical error during scraping: {e}")
+            finally:
+                print("🧹 Cleaning up browser...")
+                browser.close()
+
+    finally:
+        print("🧹 Stopping virtual display...")
+        display.stop()
 
     print("✅ Scraping completed successfully!")
 

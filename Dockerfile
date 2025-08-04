@@ -5,9 +5,12 @@ FROM python:3.11-slim
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV DISPLAY=:99
+ENV RENDER=true
 
-# Install system dependencies required by Playwright and Chrome
+# Install system dependencies for Xvfb, Playwright, and Chrome
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb \
     wget \
     curl \
     gnupg \
@@ -23,7 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libexpat1 \
     libfontconfig1 \
     libgcc1 \
-    libgconf-2-4 \
     libgdk-pixbuf2.0-0 \
     libglib2.0-0 \
     libgtk-3-0 \
@@ -45,12 +47,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libxss1 \
     libxtst6 \
-    ca-certificates \
-    fonts-liberation \
-    libappindicator1 \
-    libnss3 \
-    lsb-release \
-    xdg-utils \
     libgbm1 \
     libxshmfence1 \
     && echo "✅ System dependencies installed successfully" \
@@ -83,12 +79,9 @@ RUN chown -R scraper:scraper /app
 # Switch to non-root user
 USER scraper
 
-# Set display for headless operation
-ENV DISPLAY=:99
-
-# Health check to ensure the container is working
+# Health check to ensure Playwright and Xvfb are working
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import playwright; print('Playwright is working')" || exit 1
+    CMD xvfb-run python -c "import playwright; from pyvirtualdisplay import Display; print('Playwright and Xvfb are working')" || exit 1
 
-# Run the application
-CMD ["python", "main.py"]
+# Run the application with Xvfb
+CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "python", "complaintsz.py"]
