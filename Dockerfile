@@ -8,9 +8,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV DISPLAY=:99
 ENV RENDER=true
 
-# Install system dependencies for Xvfb, Playwright, and Chrome
+# Install system dependencies for Xvfb, xauth, Playwright, and Chrome
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
+    xauth \
     wget \
     curl \
     gnupg \
@@ -19,13 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
-    libc6 \
     libcairo2 \
     libcups2 \
     libdbus-1-3 \
     libexpat1 \
     libfontconfig1 \
-    libgcc1 \
     libgdk-pixbuf2.0-0 \
     libglib2.0-0 \
     libgtk-3-0 \
@@ -84,4 +83,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD xvfb-run python -c "import playwright; from pyvirtualdisplay import Display; print('Playwright and Xvfb are working')" || exit 1
 
 # Run the application with Xvfb
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "python", "complaintsz.py"]
+CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "python", "zomreview.py"]
