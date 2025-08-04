@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 from pyvirtualdisplay import Display
 
-# === Load environment variables ===
+# Load environment variables
 load_dotenv()
 
 SHEET_NAME = "Swiggy Zomato Dashboard"
@@ -161,38 +161,18 @@ def scrape_and_push_reviews():
         existing_hashes = get_existing_order_hashes(worksheet)
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False,  # Run in headed mode for virtual display
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process',
-                    '--disable-blink-features=AutomationControlled',
-                    '--window-size=1920,1080'
-                ]
-            )
-            context = browser.new_context(
-                storage_state=LOGIN_STORAGE_FILE if os.path.exists(LOGIN_STORAGE_FILE) else None,
-                viewport={"width": 1920, "height": 1080},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                java_script_enabled=True,
-                ignore_https_errors=True
-            )
-
-            # Add anti-detection script
-            context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', { get: () => false });
-                window.navigator.chrome = { runtime: {} };
-                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            """)
-
+            browser = p.chromium.launch(headless=False, args=[
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--single-process",
+                "--disable-accelerated-2d-canvas",
+                "--no-zygote",
+                "--disable-features=VizDisplayCompositor"])
+            context = browser.new_context(storage_state=LOGIN_STORAGE_FILE)
             page = context.new_page()
-            page.set_default_timeout(30000)
-            page.goto(URL, wait_until="networkidle")
+            page.goto(URL)
 
             for index, outlet_id in enumerate(IDs):
                 print(f"\n🔁 Processing Outlet ID: {outlet_id}")
@@ -269,7 +249,7 @@ def scrape_and_push_reviews():
                             if not order_id:
                                 print(f"⚠️ Skipping: No valid Order ID extracted for review #{i+1}.")
                             elif generate_order_hash(order_id) in existing_hashes:
-                                print(f"⏭️ Skipping duplicate Order ID: {outlet_id}")
+                                print(f"⏭️ Skipping duplicate Order ID: {order_id}")
                             else:
                                 push_to_sheet(worksheet, outlet_id, extracted_data)
                                 existing_hashes.add(generate_order_hash(order_id))
