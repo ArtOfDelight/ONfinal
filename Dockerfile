@@ -83,4 +83,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD xvfb-run python -c "import playwright; from pyvirtualdisplay import Display; print('Playwright and Xvfb are working')" || exit 1
 
 # Run the application with Xvfb
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "python", "complaintsz.py"]
+CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1920x1080x24", "python", "main.py"]
