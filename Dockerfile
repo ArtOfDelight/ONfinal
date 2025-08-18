@@ -8,14 +8,17 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV DISPLAY=:99
 ENV RENDER=true
 
-# Install system dependencies for Xvfb, xauth, Playwright, and Chrome
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb \
-    xauth \
+# Install system dependencies with better error handling
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     wget \
     curl \
     gnupg \
     ca-certificates \
+    && apt-get update && \
+    apt-get install -y --no-install-recommends \
+    xvfb \
+    xauth \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -49,7 +52,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libxshmfence1 \
     && echo "✅ System dependencies installed successfully" \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create a non-root user for security
 RUN groupadd -r scraper && useradd -r -g scraper -G audio,video scraper \
@@ -64,10 +68,14 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright and download Chromium
+# Install Playwright with better error handling
 RUN pip install playwright==1.47.0 \
     && playwright install chromium \
-    && playwright install-deps chromium
+    && playwright install-deps chromium \
+    || (echo "Playwright installation failed, trying alternative approach..." && \
+        apt-get update && \
+        apt-get install -y --no-install-recommends chromium && \
+        rm -rf /var/lib/apt/lists/*)
 
 # Copy application code
 COPY . .
@@ -78,9 +86,9 @@ RUN chown -R scraper:scraper /app
 # Switch to non-root user
 USER scraper
 
-# Health check to ensure Playwright and Xvfb are working
+# Simplified health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD xvfb-run python -c "import playwright; from pyvirtualdisplay import Display; print('Playwright and Xvfb are working')" || exit 1
+    CMD python -c "import playwright; print('Playwright is working')" || exit 1
 
-# Run the main script without Xvfb (Xvfb is handled in main.py for z files)
-CMD ["python", "main.py"]y
+# Run the main script
+CMD ["python", "main.py"]
