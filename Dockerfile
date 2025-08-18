@@ -1,5 +1,5 @@
 # Use the official Playwright image with all dependencies pre-installed
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.54.0-jammy
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
