@@ -27,8 +27,8 @@ sheet = client.open("Swiggy Zomato Dashboard").worksheet("swiggy_review")
 
 # === Brand List ===
 BRAND_NAMES = [
-    "Frosty Crumble",
-    "Frosty Crumble By Art Of Delight",
+    "Art Of Delight - Ice Creams, Sundaes And Desserts",
+    "Art of Delight Express",
     "Art Of Delight - Crafted Ice Creams And Desserts"
 ]
 
