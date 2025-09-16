@@ -10,6 +10,8 @@ import hashlib
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
 import requests # Add this import
+from datetime import datetime, timedelta
+import re
 
 # === Load environment variables and API keys ===
 load_dotenv()
@@ -36,6 +38,67 @@ SWIGGY_MATCH_GAS_WEB_APP_URL = os.getenv("SWIGGY_MATCH_GAS_WEB_APP_URL", "") # G
 
 
 # === Utils ===
+def adjust_timestamp_for_timezone(timestamp_str):
+    """
+    Adjusts timestamp by subtracting 5 hours 30 minutes to account for Render's GMT conversion.
+    Input: 'Jul 19, 10:59 PM' or similar format
+    Output: Adjusted timestamp string in same format
+    """
+    if not timestamp_str or timestamp_str.strip() == "":
+        return timestamp_str
+    
+    try:
+        # Parse various timestamp formats that might appear
+        timestamp_patterns = [
+            "%b %d, %I:%M %p",      # Jul 19, 10:59 PM
+            "%b %d, %H:%M",         # Jul 19, 22:59
+            "%B %d, %I:%M %p",      # July 19, 10:59 PM
+            "%B %d, %H:%M",         # July 19, 22:59
+            "%d %b, %I:%M %p",      # 19 Jul, 10:59 PM
+            "%d %b, %H:%M",         # 19 Jul, 22:59
+        ]
+        
+        parsed_time = None
+        matched_pattern = None
+        
+        # Try to parse with different patterns
+        for pattern in timestamp_patterns:
+            try:
+                # Add current year if not present
+                test_timestamp = timestamp_str.strip()
+                if not re.search(r'\d{4}', test_timestamp):  # No year found
+                    current_year = datetime.now().year
+                    test_timestamp = f"{test_timestamp}, {current_year}"
+                    pattern = f"{pattern}, %Y"
+                
+                parsed_time = datetime.strptime(test_timestamp, pattern)
+                matched_pattern = pattern
+                break
+            except ValueError:
+                continue
+        
+        if parsed_time is None:
+            print(f"⚠️ Could not parse timestamp: {timestamp_str}. Returning original.")
+            return timestamp_str
+        
+        # Subtract 5 hours 30 minutes (IST to GMT adjustment)
+        adjusted_time = parsed_time - timedelta(hours=5, minutes=30)
+        
+        # Format back to original style (without year if it wasn't in original)
+        if ', %Y' in matched_pattern:
+            # Remove year from pattern for output formatting
+            output_pattern = matched_pattern.replace(', %Y', '')
+            formatted_time = adjusted_time.strftime(output_pattern)
+        else:
+            formatted_time = adjusted_time.strftime(matched_pattern)
+        
+        print(f"🕐 Timezone adjusted: {timestamp_str} → {formatted_time}")
+        return formatted_time
+        
+    except Exception as e:
+        print(f"⚠️ Error adjusting timestamp '{timestamp_str}': {e}")
+        return timestamp_str  # Return original if adjustment fails
+
 def generate_review_hash(parsed_review: dict) -> str:
     """Generates a unique hash for a review to help with deduplication."""
     # Use Order ID as the primary key for deduplication, fallback to empty if missing
@@ -108,6 +171,11 @@ Review Text:
         raw_content = response.text.strip()
         cleaned = raw_content.replace("```json", "").replace("```", "").strip()
         parsed_data = json.loads(cleaned)
+        
+        # Apply timezone adjustment to the timestamp
+        if "Timestamp" in parsed_data and parsed_data["Timestamp"]:
+            parsed_data["Timestamp"] = adjust_timestamp_for_timezone(parsed_data["Timestamp"])
+        
         return parsed_data
 
     except json.JSONDecodeError as e:
@@ -137,7 +205,7 @@ def append_to_sheet(parsed_review, seen_hashes):
 
         row = [
             parsed_review.get("Order ID", ""),
-            parsed_review.get("Timestamp", ""),
+            parsed_review.get("Timestamp", ""),  # This now contains the adjusted timestamp
             parsed_review.get("Outlet", ""),
             item_ordered,
             parsed_review.get("Rating", ""),
@@ -217,7 +285,7 @@ def click_and_extract_reviews(page):
                 # Create a new dictionary with remapped keys, keeping original keys if not in key_map
                 parsed_remapped = {key_map.get(k, k): v for k, v in parsed.items()}
                 
-                print("✅ Parsed Review (remapped keys):")
+                print("✅ Parsed Review (remapped keys with adjusted timestamp):")
                 print(json.dumps(parsed_remapped, indent=2))
                 
                 append_to_sheet(parsed_remapped, seen_hashes)
