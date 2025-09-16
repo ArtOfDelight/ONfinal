@@ -12,12 +12,12 @@ if __name__ == "__main__":
     print(f"🚀 Starting Multi-Platform Automation Sequence at {os.getenv('RENDER', 'local')}...")
 
     # --- Swiggy Complaints ---
-    try:
-        print("\n📂 Step 1: Fetching Swiggy Complaints...")
-        scrape_swiggy_complaints()
-        print("✅ Swiggy Complaints completed")
-    except Exception as e:
-        print(f"❌ Swiggy Complaints scraper failed: {e}")
+    # try:
+    #     print("\n📂 Step 1: Fetching Swiggy Complaints...")
+    #     scrape_swiggy_complaints()
+    #     print("✅ Swiggy Complaints completed")
+    # except Exception as e:
+    #     print(f"❌ Swiggy Complaints scraper failed: {e}")
 
     # --- Swiggy Reviews ---
     try:
