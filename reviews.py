@@ -40,7 +40,7 @@ SWIGGY_MATCH_GAS_WEB_APP_URL = os.getenv("SWIGGY_MATCH_GAS_WEB_APP_URL", "") # G
 # === Utils ===
 def adjust_timestamp_for_timezone(timestamp_str):
     """
-    Adjusts timestamp by subtracting 5 hours 30 minutes to account for Render's GMT conversion.
+    Adjusts timestamp by adding 5 hours 30 minutes to account for Render's GMT conversion.
     Input: 'Jul 19, 10:59 PM' or similar format
     Output: Adjusted timestamp string in same format
     """
@@ -81,8 +81,8 @@ def adjust_timestamp_for_timezone(timestamp_str):
             print(f"⚠️ Could not parse timestamp: {timestamp_str}. Returning original.")
             return timestamp_str
         
-        # Subtract 5 hours 30 minutes (IST to GMT adjustment)
-        adjusted_time = parsed_time - timedelta(hours=5, minutes=30)
+        # Add 5 hours 30 minutes (GMT to IST adjustment)
+        adjusted_time = parsed_time + timedelta(hours=5, minutes=30)
         
         # Format back to original style (without year if it wasn't in original)
         if ', %Y' in matched_pattern:
@@ -92,7 +92,7 @@ def adjust_timestamp_for_timezone(timestamp_str):
         else:
             formatted_time = adjusted_time.strftime(matched_pattern)
         
-        print(f"🕐 Timezone adjusted: {timestamp_str} → {formatted_time}")
+        print(f"🕐 Timezone adjusted: {timestamp_str} → {formatted_time} (+5:30)")
         return formatted_time
         
     except Exception as e:
