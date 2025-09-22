@@ -10,26 +10,24 @@ from ZomatoMain import scrape_multiple_outlets as scrape_zomato_main
 
 from dotenv import load_dotenv
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 if __name__ == "__main__":
     # Load environment variables
     load_dotenv()
     print(f"Starting Multi-Platform Automation Sequence at {os.getenv('RENDER', 'local')}...")
     
-    # Get date inputs once for all scripts
-    print("\nSetting up date parameters...")
-    swiggy_date_label = input("Enter Swiggy date label (e.g., 'September 2025'): ").strip()
-    if not swiggy_date_label:
-        swiggy_date_label = "Unknown Date"
+    # Automatically calculate yesterday's date for both platforms
+    yesterday = datetime.now() - timedelta(days=1)
     
-    zomato_raw_date = input("Enter Zomato report date (DD/MM/YY): ").strip()
-    try:
-        zomato_report_date = datetime.strptime(zomato_raw_date, "%d/%m/%y")
-        zomato_date_label = zomato_report_date.strftime("%Y-%m-%d")
-    except ValueError:
-        print("Invalid Zomato date format, using default")
-        zomato_date_label = "2025-01-01"
+    # Set up date parameters automatically
+    print("\nSetting up date parameters...")
+    swiggy_date_label = yesterday.strftime("%Y-%m-%d")  # YYYY-MM-DD format for Swiggy
+    zomato_date_label = yesterday.strftime("%Y-%m-%d")   # YYYY-MM-DD format for Zomato
+    
+    print(f"Using yesterday's date: {swiggy_date_label}")
+    print(f"Swiggy date label: {swiggy_date_label}")
+    print(f"Zomato date label: {zomato_date_label}")
     
     zomato_outlet_ids = [
         19418061, 19595967, 57750, 19501520,
@@ -54,12 +52,13 @@ if __name__ == "__main__":
         print(f"Swiggy Reviews scraper failed: {e}")
 
     # --- Swiggy Main Dashboard ---
-    # try:
-    #     print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
-    #     scrape_swiggy_main(swiggy_date_label)
-    #     print("Swiggy Main Dashboard completed")
-    # except Exception as e:
-    #     print(f"Swiggy Main Dashboard scraper failed: {e}")
+    try:
+        print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
+        # Note: The Swiggy scraper now handles date automatically, but we can still pass the label if needed
+        scrape_swiggy_main()  # Removed the parameter since the updated script handles it automatically
+        print("Swiggy Main Dashboard completed")
+    except Exception as e:
+        print(f"Swiggy Main Dashboard scraper failed: {e}")
 
     # --- Zomato Complaints ---
     # try:
