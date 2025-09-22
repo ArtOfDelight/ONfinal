@@ -54,12 +54,12 @@ if __name__ == "__main__":
         print(f"Swiggy Reviews scraper failed: {e}")
 
     # --- Swiggy Main Dashboard ---
-    try:
-        print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
-        scrape_swiggy_main(swiggy_date_label)
-        print("Swiggy Main Dashboard completed")
-    except Exception as e:
-        print(f"Swiggy Main Dashboard scraper failed: {e}")
+    # try:
+    #     print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
+    #     scrape_swiggy_main(swiggy_date_label)
+    #     print("Swiggy Main Dashboard completed")
+    # except Exception as e:
+    #     print(f"Swiggy Main Dashboard scraper failed: {e}")
 
     # --- Zomato Complaints ---
     # try:
