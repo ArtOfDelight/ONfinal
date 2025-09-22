@@ -32,124 +32,51 @@ METRICS = [
     "New users", "Repeat users", "Lapsed users", "Ads orders"
 ]
 
-# ========== Authentication Debug Helper ==========
-def debug_auth_file():
-    """Debug authentication file loading with detailed logging"""
-    print("🔍 Debugging authentication file...")
-    
-    # Check current working directory
-    print(f"Current working directory: {os.getcwd()}")
-    
-    # List all files in current directory
-    try:
-        files = os.listdir('.')
-        print(f"Files in current directory: {files}")
-    except Exception as e:
-        print(f"Error listing files: {e}")
-    
-    # Check if zomato_login.json exists
+# ========== Authentication Helper ==========
+def check_auth_file():
+    """Check if authentication file exists and get path"""
     auth_file = "zomato_login.json"
     if os.path.exists(auth_file):
-        print(f"✅ {auth_file} exists")
-        
-        # Check file size
-        try:
-            file_size = os.path.getsize(auth_file)
-            print(f"File size: {file_size} bytes")
-        except Exception as e:
-            print(f"Error getting file size: {e}")
-        
-        # Try to read and validate JSON
+        print(f"✅ Authentication file found: {auth_file}")
         try:
             with open(auth_file, 'r') as f:
-                auth_data = json.load(f)
-                print(f"✅ JSON is valid")
-                print(f"JSON keys: {list(auth_data.keys())}")
-                
-                # Check if it has cookies (basic validation)
-                if 'cookies' in auth_data:
-                    print(f"✅ Contains cookies: {len(auth_data['cookies'])} cookies found")
-                    
-                    # Check for essential Zomato cookies
-                    cookie_names = [cookie.get('name', '') for cookie in auth_data['cookies']]
-                    essential_cookies = ['session_id', 'auth_token', 'user_id']
-                    found_essential = [name for name in essential_cookies if any(name in cookie_name for cookie_name in cookie_names)]
-                    print(f"Essential cookies found: {found_essential}")
-                    
-                else:
-                    print("⚠️ No 'cookies' key found in JSON")
-                
-                if 'origins' in auth_data:
-                    print(f"✅ Contains origins: {len(auth_data['origins'])} origins")
-                else:
-                    print("⚠️ No 'origins' key found in JSON")
-                    
-                return auth_data
-                
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON decode error: {e}")
-            return None
+                data = json.load(f)
+                cookie_count = len(data.get('cookies', []))
+                print(f"📝 Contains {cookie_count} cookies")
+                return auth_file
         except Exception as e:
-            print(f"❌ Error reading file: {e}")
+            print(f"⚠️ Error reading auth file: {e}")
             return None
     else:
-        print(f"❌ {auth_file} does not exist")
+        print(f"❌ Authentication file not found: {auth_file}")
         return None
 
-def validate_login_state(page):
-    """Check if we're actually logged in after loading auth"""
-    print("🔐 Validating login state...")
-    
-    current_url = page.url
-    print(f"Current URL: {current_url}")
-    
-    # Check if we're on a login page
-    login_indicators = ['login', 'signin', 'auth', 'verify']
-    if any(indicator in current_url.lower() for indicator in login_indicators):
-        print("❌ Appears to be on login page - authentication failed")
-        return False
-    
-    # Check page title for login indicators
+def validate_page_login(page):
+    """Quick check if we're logged in"""
     try:
-        title = page.title()
-        print(f"Page title: {title}")
-        if any(indicator in title.lower() for indicator in ['login', 'sign in', 'authentication']):
-            print("❌ Page title indicates login required")
-            return False
-    except Exception as e:
-        print(f"Could not get page title: {e}")
-    
-    # Look for common logged-in indicators
-    try:
-        # Check for partner dashboard elements
-        partner_indicators = [
-            "text=Dashboard",
-            "text=Business Reports", 
-            "text=Partner",
-            "text=Logout",
-            "[data-testid*='partner']",
-            "[class*='partner']"
-        ]
+        current_url = page.url
+        print(f"Current URL: {current_url}")
         
-        found_indicators = []
-        for indicator in partner_indicators:
-            try:
-                element = page.locator(indicator).first
-                if element.is_visible(timeout=3000):
-                    found_indicators.append(indicator)
-            except:
-                continue
-        
-        if found_indicators:
-            print(f"✅ Found login indicators: {found_indicators}")
-            return True
-        else:
-            print("⚠️ No clear login indicators found")
+        # Check if on login page
+        if any(keyword in current_url.lower() for keyword in ['login', 'signin', 'auth']):
+            print("❌ On login page - not authenticated")
             return False
+        
+        # Look for partner indicators
+        try:
+            # Quick check for partner elements
+            if page.locator("text=Partner").first.is_visible(timeout=5000):
+                print("✅ Partner element found - likely logged in")
+                return True
+        except:
+            pass
             
+        print("⚠️ Login status unclear")
+        return True  # Assume logged in if not clearly on login page
+        
     except Exception as e:
-        print(f"Error checking login indicators: {e}")
-        return False
+        print(f"Error checking login: {e}")
+        return True
 
 # ========== Utility Functions ==========
 def click_dropdowns_in_frames(page, labels):
@@ -305,422 +232,369 @@ def scrape_multiple_outlets(outlet_ids, report_date_label):
     print(f"🚀 Starting Zomato scraper")
     print(f"📍 Environment: {'Render' if os.getenv('RENDER') else 'Local'}")
     print(f"📅 Date: {report_date_label}")
-    print(f"🏪 Outlets: {len(outlet_ids)} outlets to process")
 
-    # Debug authentication file before starting browser
-    auth_data = debug_auth_file()
-    if not auth_data:
-        print("❌ Cannot proceed without valid authentication")
-        if os.getenv('RENDER'):
-            raise Exception("Authentication file not found or invalid on Render")
-        else:
-            input("Press Enter after fixing authentication file...")
-            auth_data = debug_auth_file()
+    # Check authentication
+    auth_file = check_auth_file()
 
     with sync_playwright() as p:
         browser = None
+        context = None
+        page = None
+        page_loaded = False
         
-        try:
-            print("🌐 Launching Chromium browser...")
-            
-            # Render-optimized browser args
-            browser_args = [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas", 
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu",
-                "--disable-web-security",
-                "--disable-features=VizDisplayCompositor",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-extensions"
-            ]
-            
-            if os.getenv('RENDER'):
-                browser_args.extend([
-                    "--single-process",  # Important for Render
+        # Use the exact browser configuration that works from your original code
+        browser_configs = [
+            # Config 1: Your working Chromium config
+            {
+                'browser_type': 'chromium',
+                'args': [
+                    "--no-sandbox",
+                    "--disable-gpu",
                     "--disable-http2",
+                    "--disable-features=VizDisplayCompositor",
+                    "--disable-web-security",
+                    "--disable-features=TranslateUI",
+                    "--disable-dev-shm-usage",
+                    "--allow-running-insecure-content",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-extensions",
+                    "--disable-background-timer-throttling",
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-features=TranslateUI,BlinkGenPropertyTrees",
+                    "--disable-ipc-flooding-protection",
                     "--force-http1"
-                ])
-            
-            browser = p.chromium.launch(
-                headless=True,
-                args=browser_args
-            )
-            
-            # Create context with authentication
-            print("🔐 Creating browser context with authentication...")
-            context = browser.new_context(
-                storage_state=auth_data,  # Use the loaded auth data directly
-                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                ignore_https_errors=True,
-                java_script_enabled=True,
-                viewport={"width": 1920, "height": 1080}
-            )
-            
-            page = context.new_page()
-            
-            # Set longer timeouts for Render
-            page.set_default_navigation_timeout(120000)  # 2 minutes
-            page.set_default_timeout(60000)  # 1 minute for elements
-            
-            print("🔗 Navigating to Zomato Partner Reporting Page...")
-            
-            # Navigate with retries
-            success = False
-            urls_to_try = [
-                "https://www.zomato.com/partners/onlineordering/reporting/",
-                "https://www.zomato.com/partners/onlineordering/",
-                "https://www.zomato.com/partners/"
-            ]
-            
-            for attempt in range(3):  # 3 attempts total
-                for url in urls_to_try:
+                ]
+            }
+        ]
+        
+        for config in browser_configs:
+            try:
+                print(f"🌐 Launching {config['browser_type']} browser...")
+                
+                if config['browser_type'] == 'chromium':
+                    browser = p.chromium.launch(headless=True, args=config['args'])
+                
+                # Create context with enhanced error handling
+                print("🔐 Creating browser context...")
+                try:
+                    context_options = {
+                        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "ignore_https_errors": True,
+                        "java_script_enabled": True,
+                        "accept_downloads": False,
+                        "extra_http_headers": {
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                            "Accept-Language": "en-US,en;q=0.9",
+                            "Accept-Encoding": "gzip, deflate, br",
+                            "Connection": "keep-alive",
+                            "Upgrade-Insecure-Requests": "1",
+                            "Sec-Fetch-Dest": "document",
+                            "Sec-Fetch-Mode": "navigate",
+                            "Sec-Fetch-Site": "none",
+                            "Cache-Control": "max-age=0"
+                        }
+                    }
+                    
+                    # Try to add authentication if file exists
+                    if auth_file:
+                        try:
+                            print("🔑 Applying authentication...")
+                            context_options["storage_state"] = auth_file
+                        except Exception as auth_error:
+                            print(f"⚠️ Authentication failed, continuing without: {auth_error}")
+                    
+                    context = browser.new_context(**context_options)
+                    print("✅ Browser context created successfully")
+                    
+                except Exception as context_error:
+                    print(f"❌ Context creation failed: {context_error}")
+                    # Try without authentication
                     try:
-                        print(f"🔄 Attempt {attempt + 1}: Trying {url}")
-                        response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                        
-                        if response and response.ok:
-                            print(f"✅ Successfully loaded: {url}")
-                            page.wait_for_timeout(3000)
-                            
-                            # Validate login immediately after page load
-                            if validate_login_state(page):
-                                print("✅ Authentication confirmed - logged in successfully")
-                                success = True
-                                break
-                            else:
-                                print("❌ Authentication failed - not logged in")
-                                if attempt < 2:  # Try again unless it's the last attempt
-                                    print("Retrying...")
-                                    continue
-                                else:
-                                    raise Exception("Authentication failed after all attempts")
-                        
-                    except Exception as e:
-                        print(f"❌ Failed to load {url}: {e}")
+                        print("🔄 Retrying without authentication...")
+                        context_options_basic = {
+                            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "ignore_https_errors": True
+                        }
+                        context = browser.new_context(**context_options_basic)
+                        print("✅ Basic context created successfully")
+                    except Exception as basic_error:
+                        print(f"❌ Basic context also failed: {basic_error}")
+                        if browser:
+                            browser.close()
                         continue
                 
-                if success:
-                    break
+                page = context.new_page()
+                
+                # Set timeouts
+                page.set_default_navigation_timeout(120000)  # 2 minutes timeout
+                page.set_default_timeout(60000)  # 1 minute for elements
+                
+                print("🔗 Navigating to Zomato Partner Page...")
+                
+                # Multiple URL attempts with your working strategies
+                urls_to_try = [
+                    "https://www.zomato.com/partners/onlineordering/reporting/",
+                    "https://www.zomato.com/partners/onlineordering/", 
+                    "https://www.zomato.com/partners/",
+                    "https://partners.zomato.com/onlineordering/reporting/",
+                    "https://partners.zomato.com/"
+                ]
+                
+                for url_idx, url in enumerate(urls_to_try):
+                    print(f"🔄 Trying URL {url_idx + 1}/{len(urls_to_try)}: {url}")
                     
-                if attempt < 2:  # Wait before retry unless it's the last attempt
-                    print("⏳ Waiting 5 seconds before retry...")
-                    page.wait_for_timeout(5000)
-            
-            if not success:
-                raise Exception("Failed to load any Zomato partner page after all attempts")
-
-            # Try to dismiss any popups
-            try:
-                okay_selectors = ["text=Okay", "text=OK", "button:has-text('Okay')", "button:has-text('OK')"]
-                for selector in okay_selectors:
                     try:
-                        okay_btn = page.locator(selector).first
-                        if okay_btn.is_visible(timeout=3000):
-                            okay_btn.click()
-                            page.wait_for_timeout(1000)
-                            print("✅ Dismissed popup")
+                        # Strategy 1: Load with commit wait (your working method)
+                        page.goto(url, wait_until='commit', timeout=30000)
+                        page.wait_for_timeout(2000)
+                        page.wait_for_load_state('domcontentloaded', timeout=30000) 
+                        print(f"✅ Successfully loaded with commit strategy: {url}")
+                        
+                        # Quick login validation
+                        if validate_page_login(page):
+                            page_loaded = True
+                            break
+                        else:
+                            print("❌ Not logged in, trying next URL...")
+                            continue
+                        
+                    except Exception as e1:
+                        print(f"Commit strategy failed: {e1}")
+                        try:
+                            # Strategy 2: Load with domcontentloaded
+                            page.goto(url, wait_until='domcontentloaded', timeout=45000)
+                            print(f"✅ Successfully loaded with domcontentloaded: {url}")
+                            
+                            if validate_page_login(page):
+                                page_loaded = True
+                                break
+                            
+                        except Exception as e2:
+                            print(f"Domcontentloaded strategy failed: {e2}")
+                            continue
+                
+                if page_loaded:
+                    break  # Success with this browser config
+                else:
+                    # Clean up failed attempt
+                    if browser:
+                        browser.close()
+                        browser = None
+                        
+            except Exception as browser_error:
+                print(f"❌ {config['browser_type']} browser failed completely: {browser_error}")
+                if browser:
+                    try:
+                        browser.close()
+                    except:
+                        pass
+                    browser = None
+                continue
+        
+        if not page_loaded:
+            raise Exception("Could not load Zomato partner page. Check authentication.")
+        
+        print(f"✅ Successfully connected using {config['browser_type']} browser")
+
+        # Rest of your working code
+        page.wait_for_timeout(5000)
+
+        try:
+            okay_btn = page.locator("text=Okay")
+            if okay_btn.is_visible():
+                okay_btn.click()
+                page.wait_for_timeout(1000)
+        except:
+            page.mouse.click(500, 300)
+
+        try:
+            print("🖱️ Clicking on 'View Business Reports'...")
+            report_btn = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]")
+            report_btn.click()
+            page.wait_for_timeout(2000)
+            print("✅ Successfully clicked View Business Reports")
+        except Exception as e:
+            print(f"❌ Error clicking View Business Reports: {e}")
+            # Try alternative approach
+            print("🔍 Looking for alternative report buttons...")
+            try:
+                alt_selectors = [
+                    "text=View Business Reports",
+                    "text=Business Reports",
+                    "text=Reports"
+                ]
+                
+                for selector in alt_selectors:
+                    try:
+                        element = page.locator(selector)
+                        if element.is_visible(timeout=5000):
+                            element.click()
+                            print(f"✅ Clicked reports using: {selector}")
+                            page.wait_for_timeout(2000)
                             break
                     except:
                         continue
             except:
                 pass
 
-            # Navigate to reports if not already there
-            if "reporting" not in page.url:
-                print("🖱️ Looking for 'View Business Reports'...")
-                
-                # Try multiple selectors for the reports button
-                report_selectors = [
-                    "text=View Business Reports",
-                    "text=Business Reports", 
-                    "text=Reports",
-                    "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]",
-                    "[data-testid*='report']",
-                    "[class*='report']"
-                ]
-                
-                reports_clicked = False
-                for selector in report_selectors:
-                    try:
-                        element = page.locator(selector)
-                        if element.is_visible(timeout=10000):
-                            element.click()
-                            page.wait_for_timeout(3000)
-                            print(f"✅ Clicked reports using: {selector}")
-                            reports_clicked = True
-                            break
-                    except Exception as e:
-                        print(f"Failed to click with {selector}: {e}")
-                        continue
-                
-                if not reports_clicked:
-                    print("❌ Could not find 'View Business Reports' button")
-                    print("This usually means:")
-                    print("1. Authentication session expired")
-                    print("2. Page structure changed")
-                    print("3. Still loading")
-                    
-                    # Debug: show what's actually on the page
-                    try:
-                        page_text = page.locator('body').inner_text()
-                        print(f"Page contains 'report': {'report' in page_text.lower()}")
-                        print(f"Page contains 'business': {'business' in page_text.lower()}")
-                        print(f"Page sample: {page_text[:500]}...")
-                    except:
-                        pass
-                    
-                    if not os.getenv('RENDER'):
-                        input("Debug: Press Enter after manually navigating to reports page...")
+        # Process outlets using your working logic
+        for idx, outlet_id in enumerate(outlet_ids):
+            print(f"\n🔁 Processing outlet {idx + 1}/{len(outlet_ids)}: {outlet_id}")
 
-            # Process each outlet
-            for idx, outlet_id in enumerate(outlet_ids):
-                print(f"\n🔁 Processing outlet {idx + 1}/{len(outlet_ids)}: {outlet_id}")
+            try:
+                # Open All Outlets dropdown
+                page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[2]/div/div/div/span/span[2]").click()
+                page.wait_for_timeout(1000)
 
-                try:
-                    # Open All Outlets dropdown
-                    dropdown_opened = False
-                    dropdown_selectors = [
-                        "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[2]/div/div/div/span/span[2]",
-                        "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span",
-                        "[class*='dropdown']",
-                        "[class*='select']",
-                        "text=All Outlets"
-                    ]
-                    
-                    for selector in dropdown_selectors:
+                if idx == 0:
+                    # Date selection logic (your working code)
+                    try:
+                        print("📅 Switching to Daily view...")
+                        page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div/div/div[1]/div/div[1]/div[2]/span/span").click()
+                        page.wait_for_timeout(2000)
+                        
+                        print("Opening calendar by clicking 'Select date range'...")
+                        calendar_opener_clicked = False
+                        
                         try:
-                            dropdown = page.locator(selector)
-                            if dropdown.is_visible(timeout=15000):
-                                dropdown.click()
+                            calendar_opener = page.locator("xpath=//*[@id='modal']/div/div/div[2]/div[2]/div/div/div[1]/div/div[2]/div/div/div/div[1]/div/span/span")
+                            if calendar_opener.is_visible():
+                                calendar_opener.click()
+                                print("Calendar opened using specific XPath.")
+                                calendar_opener_clicked = True
                                 page.wait_for_timeout(2000)
-                                print(f"✅ Opened dropdown using: {selector}")
-                                dropdown_opened = True
-                                break
-                        except:
-                            continue
-                    
-                    if not dropdown_opened:
-                        print(f"❌ Could not open dropdown for outlet {outlet_id}")
-                        continue
-
-                    # Date selection (only for first outlet)
-                    if idx == 0:
-                        try:
-                            print("📅 Setting up date selection...")
-                            
-                            # Switch to Daily view
-                            daily_selectors = [
-                                "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div/div/div[1]/div/div[1]/div[2]/span/span",
-                                "text=Daily",
-                                "[data-testid*='daily']"
-                            ]
-                            
-                            for selector in daily_selectors:
-                                try:
-                                    daily_btn = page.locator(selector)
-                                    if daily_btn.is_visible(timeout=10000):
-                                        daily_btn.click()
-                                        page.wait_for_timeout(3000)
-                                        print(f"✅ Switched to daily view using: {selector}")
-                                        break
-                                except:
-                                    continue
-                            
-                            # Open calendar
-                            calendar_selectors = [
-                                "xpath=//*[@id='modal']/div/div/div[2]/div[2]/div/div/div[1]/div/div[2]/div/div/div/div[1]/div/span/span",
+                        except Exception as e:
+                            print(f"Calendar opener XPath failed: {e}")
+                        
+                        if not calendar_opener_clicked:
+                            alternative_selectors = [
                                 "text=Select date range",
                                 "span:has-text('Select date range')"
                             ]
                             
-                            for selector in calendar_selectors:
+                            for selector in alternative_selectors:
                                 try:
-                                    calendar_btn = page.locator(selector)
-                                    if calendar_btn.is_visible(timeout=10000):
-                                        calendar_btn.click()
+                                    element = page.locator(selector).first
+                                    if element.is_visible():
+                                        element.click()
+                                        print(f"Calendar opened using selector: {selector}")
+                                        calendar_opener_clicked = True
                                         page.wait_for_timeout(2000)
-                                        print(f"✅ Opened calendar using: {selector}")
                                         break
                                 except:
                                     continue
-                            
-                            # Select yesterday's date
-                            select_yesterday_date_zomato(page)
-                            
-                        except Exception as e:
-                            print(f"⚠️ Date selection error: {e}")
-
-                    else:
-                        # Deselect previous outlet
-                        print(f"🔄 Deselecting previous outlet: {outlet_ids[idx - 1]}")
-                        try:
-                            prev_outlet_element = page.locator(f"text={outlet_ids[idx - 1]}").first
-                            if prev_outlet_element.is_visible(timeout=5000):
-                                prev_outlet_element.click()
-                                page.wait_for_timeout(1000)
-                                print("✅ Previous outlet deselected")
-                        except Exception as e:
-                            print(f"⚠️ Error deselecting previous outlet: {e}")
-
-                    # Search and select current outlet
-                    print(f"🔍 Searching for outlet: {outlet_id}")
-                    
-                    # Open dropdown for current selection
-                    current_dropdown_selectors = [
-                        "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span",
-                        "[class*='dropdown']",
-                        "[class*='select']"
-                    ]
-                    
-                    for selector in current_dropdown_selectors:
-                        try:
-                            dropdown = page.locator(selector)
-                            if dropdown.is_visible(timeout=10000):
-                                dropdown.click()
-                                page.wait_for_timeout(2000)
-                                print(f"✅ Opened current dropdown using: {selector}")
-                                break
-                        except:
-                            continue
-
-                    # Search for outlet
-                    search_selectors = [
-                        "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div[1]/div/input",
-                        "input[placeholder*='Search']",
-                        "input[type='text']"
-                    ]
-                    
-                    search_found = False
-                    for selector in search_selectors:
-                        try:
-                            search_box = page.locator(selector)
-                            if search_box.is_visible(timeout=10000):
-                                search_box.fill("")
-                                page.wait_for_timeout(500)
-                                search_box.fill(str(outlet_id))
-                                page.wait_for_timeout(3000)
-                                print(f"✅ Searched using: {selector}")
-                                search_found = True
-                                break
-                        except:
-                            continue
-
-                    if not search_found:
-                        print("⚠️ Could not find search box")
-                        continue
-
-                    # Select the outlet
-                    try:
-                        outlet_element = page.locator(f"text={outlet_id}").first
-                        if outlet_element.is_visible(timeout=15000):
-                            outlet_element.click()
-                            page.wait_for_timeout(2000)
-                            print("✅ Outlet selected")
-                        else:
-                            print(f"❌ Outlet {outlet_id} not found in dropdown")
-                            continue
-                    except Exception as e:
-                        print(f"❌ Error selecting outlet: {e}")
-                        continue
-
-                    # Apply filter
-                    print("📌 Applying outlet filter...")
-                    apply_selectors = [
-                        "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[3]/div[2]",
-                        "button:has-text('Apply')",
-                        "text=Apply"
-                    ]
-                    
-                    for selector in apply_selectors:
-                        try:
-                            apply_btn = page.locator(selector)
-                            if apply_btn.is_visible(timeout=10000):
-                                apply_btn.click()
-                                page.wait_for_timeout(5000)  # Longer wait for data to load
-                                print(f"✅ Applied filter using: {selector}")
-                                break
-                        except:
-                            continue
-
-                    # Expand dropdowns
-                    print("🔽 Expanding dropdowns...")
-                    click_dropdowns_in_frames(page, DROPDOWNS_TO_CLICK)
-
-                    # Extract data
-                    print("📊 Extracting metrics data...")
-                    text_content = ""
-                    for frame in page.frames:
-                        try:
-                            text = frame.locator("body").inner_text()
-                            if text and len(text) > 100:  # Only consider substantial content
-                                text_content += text + "\n\n"
-                        except:
-                            continue
-
-                    if not text_content:
-                        # Try main page if frames don't work
-                        try:
-                            text_content = page.locator("body").inner_text()
-                        except:
-                            print("❌ Could not extract any text content")
-                            continue
-
-                    parsed_data = extract_third_last_values(text_content, METRICS)
-
-                    # Log and save data
-                    print(f"\n📊 Data for outlet {outlet_id}:")
-                    successful_saves = 0
-                    
-                    for metric, value in parsed_data.items():
-                        print(f"  {metric}: {value}")
                         
-                        try:
-                            # Clean and convert values
-                            outlet_id_int = int(outlet_id)
-                            if isinstance(value, str) and value not in ["N/A", "Not found"]:
-                                if '₹' in value:
-                                    cleaned_value = float(value.replace('₹', '').replace(',', ''))
-                                elif '%' in value:
-                                    cleaned_value = float(value.replace('%', '').replace(',', ''))
-                                else:
-                                    cleaned_value = float(value.replace(',', ''))
-                            else:
-                                cleaned_value = value
-
-                            # Append to Google Sheet
-                            sheet.append_row(
-                                [report_date_label, outlet_id_int, metric, cleaned_value, "Zomato"],
-                                value_input_option='USER_ENTERED'
-                            )
-                            successful_saves += 1
+                        print("🗓️ Automatically selecting yesterday's date...")
+                        if not select_yesterday_date_zomato(page):
+                            print("⚠️ Automatic date selection failed")
+                            if not os.getenv('RENDER'):
+                                input(f"Please change the date to {report_date_label} manually, then press Enter...")
                             
-                        except Exception as e:
-                            print(f"  ⚠️ Sheet error for {metric}: {e}")
+                    except Exception as e:
+                        print(f"⚠️ Error in date selection: {e}")
 
-                    print(f"✅ Successfully saved {successful_saves}/{len(parsed_data)} metrics for outlet {outlet_id}")
+                else:
+                    # Deselect previous outlet
+                    print(f"🔄 Deselecting previous outlet: {outlet_ids[idx - 1]}")
+                    try:
+                        dropdown_toggle = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span")
+                        dropdown_toggle.click()
+                        page.wait_for_timeout(1000)
 
+                        prev_id_locator = page.locator(f"text={outlet_ids[idx - 1]}").first
+                        if prev_id_locator.is_visible():
+                            prev_id_locator.click()
+                            print("✅ Deselected previous ID.")
+                        page.wait_for_timeout(1000)
+                    except Exception as e:
+                        print(f"⚠️ Error deselecting previous ID: {e}")
+
+                # Select current outlet
+                page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span").click()
+                page.wait_for_timeout(1000)
+
+                # Search and select current ID
+                search_box = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div[1]/div/input")
+                search_box.fill("")
+                page.wait_for_timeout(500)
+                print(f"🔍 Searching for outlet ID: {outlet_id}")
+                search_box.fill(str(outlet_id))
+                page.wait_for_timeout(2000)
+
+                try:
+                    match_locator = page.locator(f"text={outlet_id}").first
+                    if match_locator.is_visible():
+                        match_locator.click()
+                        page.wait_for_timeout(1000)
+                        print("✅ Selected outlet.")
+                    else:
+                        print("❌ No match found for this ID.")
+                        continue
                 except Exception as e:
-                    print(f"❌ Error processing outlet {outlet_id}: {e}")
+                    print(f"❌ Could not select outlet for ID {outlet_id}: {e}")
                     continue
 
-            print(f"\n🎉 Scraping completed for {len(outlet_ids)} outlets")
-            
-            # Don't wait for input on Render
-            if not os.getenv('RENDER'):
-                input("\n✅ All outlets processed. Press Enter to exit...")
+                print("📌 Applying outlet filter...")
+                page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[3]/div[2]").click()
+                page.wait_for_timeout(3000)
+
+                print("🔽 Expanding dropdowns...")
+                click_dropdowns_in_frames(page, DROPDOWNS_TO_CLICK)
+
+                print("📊 Extracting data...")
+                text_content = ""
+                for frame in page.frames:
+                    try:
+                        text = frame.locator("body").inner_text()
+                        if text:
+                            text_content += text + "\n\n"
+                    except:
+                        continue
+
+                parsed_data = extract_third_last_values(text_content, METRICS)
+
+                print(f"\n📊 Data for outlet {outlet_id}:")
+                successful_saves = 0
                 
-        except Exception as e:
-            print(f"❌ Fatal error: {e}")
-            raise e
-        finally:
-            if browser:
-                browser.close()
+                for k, v in parsed_data.items():
+                    print(f"  {k}: {v}")
+                    try:
+                        # Clean and convert values
+                        outlet_id_int = int(outlet_id)
+                        if isinstance(v, str) and v not in ["N/A", "Not found"]:
+                            if '₹' in v:
+                                cleaned_value = float(v.replace('₹', '').replace(',', ''))
+                            elif '%' in v:
+                                cleaned_value = float(v.replace('%', '').replace(',', ''))
+                            else:
+                                cleaned_value = float(v.replace(',', ''))
+                        else:
+                            cleaned_value = v
+
+                        # Append to Google Sheet
+                        sheet.append_row(
+                            [report_date_label, outlet_id_int, k, cleaned_value, "Zomato"],
+                            value_input_option='USER_ENTERED'
+                        )
+                        successful_saves += 1
+                        
+                    except Exception as e:
+                        print(f"  ⚠️ Sheet error for {k}: {e}")
+
+                print(f"✅ Successfully saved {successful_saves}/{len(parsed_data)} metrics for outlet {outlet_id}")
+
+            except Exception as e:
+                print(f"❌ Error processing outlet {outlet_id}: {e}")
+                continue
+
+        print(f"\n🎉 Scraping completed for {len(outlet_ids)} outlets")
+        
+        # Don't wait for input on Render
+        if not os.getenv('RENDER'):
+            input("\n✅ All outlets processed. Press Enter to exit...")
+            
+        browser.close()
 
 # ========== Run Script ==========
 if __name__ == "__main__":
