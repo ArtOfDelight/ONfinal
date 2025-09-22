@@ -23,7 +23,7 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
 client = gspread.authorize(creds)
 # The worksheet name is specific to reviews
-sheet = client.open("Swiggy Zomato Dashboard").worksheet("Copy of swiggy_review")
+sheet = client.open("Swiggy Zomato Dashboard").worksheet("swiggy_review")
 
 # === RID to Brand Mapping ===
 RID_BRAND_MAPPING = {
@@ -249,8 +249,16 @@ def append_to_sheet(parsed_review, seen_hashes):
         print(f"Failed to write structured row to Google Sheet: {e}")
 
 def select_yesterday_date(page):
-    """Selects yesterday's date (18th) in the calendar widget."""
-    print("Selecting yesterday's date (18th)...")
+    """Selects yesterday's date dynamically in the calendar widget."""
+    # Calculate yesterday's date
+    from datetime import datetime, timedelta
+    yesterday = datetime.now() - timedelta(days=1)
+    yesterday_day = yesterday.day
+    yesterday_month = yesterday.strftime("%B")  # Full month name like "September"
+    yesterday_year = yesterday.year
+    
+    print(f"Selecting yesterday's date dynamically: {yesterday_day} {yesterday_month} {yesterday_year}")
+    
     try:
         # Step 1: Click on the date button to open calendar
         print("Opening calendar...")
@@ -340,79 +348,109 @@ def select_yesterday_date(page):
         # Wait for calendar modal to appear
         time.sleep(2)
         
-        # Step 2: Check if we need to navigate to the correct month (September 2025)
-        print("Checking calendar month...")
-        try:
-            # Try to find September 2025 in main page first
-            month_text = page.locator("text=September 2025")
-            month_found = month_text.is_visible()
-            
-            # If not found on main page, try in frames
-            if not month_found:
-                for frame in page.frames:
-                    try:
-                        month_text_frame = frame.locator("text=September 2025")
-                        if month_text_frame.is_visible():
-                            month_found = True
-                            print("Found September 2025 in frame.")
-                            break
-                    except:
-                        continue
-            
-            if not month_found:
-                print("Navigating to September 2025...")
-                # Try to find and click next button in main page
-                next_clicked = False
-                next_selectors = [
-                    "button[aria-label*='next']",
-                    ".react-calendar__navigation__next-button",
-                    "[class*='navigation__next']",
-                    "[class*='next-button']",
-                    "button[class*='next']"
-                ]
-                
-                for selector in next_selectors:
-                    try:
-                        next_button = page.locator(selector).first
-                        if next_button.is_visible():
-                            next_button.click()
-                            print(f"Clicked next month button using selector: {selector}")
-                            next_clicked = True
-                            time.sleep(1)
-                            break
-                    except:
-                        continue
-                
-                # If not found on main page, try in frames
-                if not next_clicked:
-                    for frame in page.frames:
-                        for selector in next_selectors:
-                            try:
-                                next_button = frame.locator(selector).first
-                                if next_button.is_visible():
-                                    next_button.click()
-                                    print(f"Clicked next month button using selector {selector} in frame.")
-                                    next_clicked = True
-                                    time.sleep(1)
-                                    break
-                            except:
-                                continue
-                        if next_clicked:
-                            break
-                            
-        except Exception as e:
-            print(f"Month navigation not needed or failed: {e}")
+        # Step 2: Always click the next month button using the specific XPath
+        print("Clicking next month button using specific XPath...")
+        next_month_clicked = False
+        next_month_xpath = "xpath=//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[1]/button[4]"
         
-        # Step 3: Select the 18th date using dynamic XPath
-        print("Selecting the 18th date...")
+        # Try on main page first
+        try:
+            next_button = page.locator(next_month_xpath)
+            if next_button.is_visible():
+                next_button.click()
+                print("Clicked next month button using XPath on main page.")
+                next_month_clicked = True
+                time.sleep(2)
+        except Exception as e:
+            print(f"Next month XPath failed on main page: {e}")
+        
+        # Try in frames if main page didn't work
+        if not next_month_clicked:
+            print("Trying next month button in frames...")
+            for frame in page.frames:
+                try:
+                    next_button_frame = frame.locator(next_month_xpath)
+                    if next_button_frame.is_visible():
+                        next_button_frame.click()
+                        print("Clicked next month button using XPath in frame.")
+                        next_month_clicked = True
+                        time.sleep(2)
+                        break
+                except:
+                    continue
+        
+        if not next_month_clicked:
+            print("Could not find next month button using the specific XPath.")
+        else:
+            print("Successfully clicked next month button.")
+        
+        # Step 3: Calculate the correct button position for yesterday's date
+        print(f"Calculating correct button position for date {yesterday_day}...")
+        
+        # First, check the text of the first button to determine if previous month days are shown
+        button_offset = 0
+        first_button_selectors = [
+            "//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[1]",
+            "xpath=//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[1]"
+        ]
+        
+        first_button_text = None
+        # Try to get first button text from main page
+        for selector in first_button_selectors:
+            try:
+                first_button = page.locator(selector).first
+                if first_button.is_visible():
+                    first_button_text = first_button.inner_text().strip()
+                    print(f"First button text: '{first_button_text}'")
+                    break
+            except:
+                continue
+        
+        # Try to get first button text from frames if not found on main page
+        if not first_button_text:
+            for frame in page.frames:
+                for selector in first_button_selectors:
+                    try:
+                        first_button = frame.locator(selector).first
+                        if first_button.is_visible():
+                            first_button_text = first_button.inner_text().strip()
+                            print(f"First button text from frame: '{first_button_text}'")
+                            break
+                    except:
+                        continue
+                if first_button_text:
+                    break
+        
+        # Calculate button offset if first button shows previous month's date
+        if first_button_text and first_button_text.isdigit():
+            first_button_num = int(first_button_text)
+            # If first button shows a high number (like 28, 29, 30, 31), it's from previous month
+            if first_button_num > 20:  # Likely previous month's last days
+                # Calculate previous month's last day
+                prev_month = yesterday.replace(day=1) - timedelta(days=1)
+                prev_month_last_day = prev_month.day
+                
+                # Calculate offset: how many previous month days are shown
+                button_offset = prev_month_last_day - first_button_num + 1
+                print(f"Previous month last day: {prev_month_last_day}")
+                print(f"Calendar shows {button_offset} previous month days")
+            else:
+                print("Calendar starts with current month (no previous month days shown)")
+        else:
+            print("Could not determine first button text, using default offset of 0")
+        
+        # Calculate the actual button position
+        target_button_position = yesterday_day + button_offset
+        print(f"Target date: {yesterday_day}, Button offset: {button_offset}, Target button position: {target_button_position}")
+        
         date_selected = False
         
-        # Primary method: Use dynamic XPath where button number matches date
+        # Primary method: Use calculated button position
         dynamic_xpath_selectors = [
-            "//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[18]/abbr",
-            "//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[18]",
-            "xpath=//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[18]/abbr",
-            "xpath=//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[18]"
+            f"//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[{target_button_position}]/abbr",
+            f"//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[{target_button_position}]",
+            f"xpath=//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[{target_button_position}]/abbr",
+            f"xpath=//*[@id='mfe-root']/div/div[5]/div/div[3]/div/div[2]/div/div/div/div[2]/button[{target_button_position}]"
         ]
         
         # Try dynamic XPath selectors in main page first
@@ -420,11 +458,19 @@ def select_yesterday_date(page):
             try:
                 date_element = page.locator(selector).first
                 if date_element.is_visible():
+                    # Get the text content before clicking
+                    try:
+                        button_text = date_element.inner_text()
+                        print(f"Found date button with text: '{button_text}'")
+                    except:
+                        button_text = "Could not get button text"
+                        print("Could not retrieve button text content")
+                    
                     # Click twice as suggested
                     date_element.click()
                     time.sleep(0.5)
                     date_element.click()
-                    print(f"Selected date 18 using dynamic XPath: {selector} (clicked twice)")
+                    print(f"Selected date {yesterday_day} using dynamic XPath: {selector} (clicked twice) - Button text: '{button_text}' - Position: {target_button_position}")
                     date_selected = True
                     time.sleep(1)
                     break
@@ -438,11 +484,19 @@ def select_yesterday_date(page):
                     try:
                         date_element = frame.locator(selector).first
                         if date_element.is_visible():
+                            # Get the text content before clicking
+                            try:
+                                button_text = date_element.inner_text()
+                                print(f"Found date button in frame with text: '{button_text}'")
+                            except:
+                                button_text = "Could not get button text"
+                                print("Could not retrieve button text content from frame")
+                            
                             # Click twice as suggested
                             date_element.click()
                             time.sleep(0.5)
                             date_element.click()
-                            print(f"Selected date 18 using dynamic XPath {selector} in frame (clicked twice)")
+                            print(f"Selected date {yesterday_day} using dynamic XPath {selector} in frame (clicked twice) - Button text: '{button_text}' - Position: {target_button_position}")
                             date_selected = True
                             time.sleep(1)
                             break
@@ -451,14 +505,14 @@ def select_yesterday_date(page):
                 if date_selected:
                     break
         
-        # Fallback method: More generic button[18] selectors
+        # Fallback method: More generic button[n] selectors using calculated position
         if not date_selected:
-            print("Dynamic XPath failed, trying generic button[18] selectors...")
+            print(f"Dynamic XPath failed, trying generic button[{target_button_position}] selectors...")
             generic_button_selectors = [
-                "button[18] abbr",
-                "button[18]",
-                "[role='gridcell']:nth-child(18)",
-                "div[role='grid'] button:nth-child(18)"
+                f"button[{target_button_position}] abbr",
+                f"button[{target_button_position}]",
+                f"[role='gridcell']:nth-child({target_button_position})",
+                f"div[role='grid'] button:nth-child({target_button_position})"
             ]
             
             # Try in main page
@@ -466,10 +520,18 @@ def select_yesterday_date(page):
                 try:
                     date_element = page.locator(selector).first
                     if date_element.is_visible():
+                        # Get the text content before clicking
+                        try:
+                            button_text = date_element.inner_text()
+                            print(f"Found date button (generic) with text: '{button_text}'")
+                        except:
+                            button_text = "Could not get button text"
+                            print("Could not retrieve button text content (generic)")
+                        
                         date_element.click()
                         time.sleep(0.5)
                         date_element.click()
-                        print(f"Selected date 18 using generic selector: {selector} (clicked twice)")
+                        print(f"Selected date {yesterday_day} using generic selector: {selector} (clicked twice) - Button text: '{button_text}' - Position: {target_button_position}")
                         date_selected = True
                         time.sleep(1)
                         break
@@ -483,10 +545,18 @@ def select_yesterday_date(page):
                         try:
                             date_element = frame.locator(selector).first
                             if date_element.is_visible():
+                                # Get the text content before clicking
+                                try:
+                                    button_text = date_element.inner_text()
+                                    print(f"Found date button (generic) in frame with text: '{button_text}'")
+                                except:
+                                    button_text = "Could not get button text"
+                                    print("Could not retrieve button text content (generic) from frame")
+                                
                                 date_element.click()
                                 time.sleep(0.5)
                                 date_element.click()
-                                print(f"Selected date 18 using generic selector {selector} in frame (clicked twice)")
+                                print(f"Selected date {yesterday_day} using generic selector {selector} in frame (clicked twice) - Button text: '{button_text}' - Position: {target_button_position}")
                                 date_selected = True
                                 time.sleep(1)
                                 break
@@ -495,14 +565,15 @@ def select_yesterday_date(page):
                     if date_selected:
                         break
         
-        # Last resort: Precise aria-label selectors (keeping original backup)
+        # Last resort: Precise aria-label selectors
         if not date_selected:
             print("Generic button selectors failed, trying precise aria-label selectors...")
+            # Build dynamic aria-label strings
             precise_aria_selectors = [
-                '[aria-label="18 September 2025"]',
-                '[aria-label="September 18, 2025"]',
-                '[aria-label*="18 September 2025"]',
-                '[aria-label*="September 18, 2025"]'
+                f'[aria-label="{yesterday_day} {yesterday_month} {yesterday_year}"]',
+                f'[aria-label="{yesterday_month} {yesterday_day}, {yesterday_year}"]',
+                f'[aria-label*="{yesterday_day} {yesterday_month} {yesterday_year}"]',
+                f'[aria-label*="{yesterday_month} {yesterday_day}, {yesterday_year}"]'
             ]
             
             # Try in main page
@@ -510,10 +581,18 @@ def select_yesterday_date(page):
                 try:
                     date_element = page.locator(selector).first
                     if date_element.is_visible():
+                        # Get the text content before clicking
+                        try:
+                            button_text = date_element.inner_text()
+                            print(f"Found date button (aria-label) with text: '{button_text}'")
+                        except:
+                            button_text = "Could not get button text"
+                            print("Could not retrieve button text content (aria-label)")
+                        
                         date_element.click()
                         time.sleep(0.5)
                         date_element.click()
-                        print(f"Selected date 18 using aria-label: {selector} (clicked twice)")
+                        print(f"Selected date {yesterday_day} using aria-label: {selector} (clicked twice) - Button text: '{button_text}' - Position: {target_button_position}")
                         date_selected = True
                         time.sleep(1)
                         break
@@ -527,10 +606,18 @@ def select_yesterday_date(page):
                         try:
                             date_element = frame.locator(selector).first
                             if date_element.is_visible():
+                                # Get the text content before clicking
+                                try:
+                                    button_text = date_element.inner_text()
+                                    print(f"Found date button (aria-label) in frame with text: '{button_text}'")
+                                except:
+                                    button_text = "Could not get button text"
+                                    print("Could not retrieve button text content (aria-label) from frame")
+                                
                                 date_element.click()
                                 time.sleep(0.5)
                                 date_element.click()
-                                print(f"Selected date 18 using aria-label {selector} in frame (clicked twice)")
+                                print(f"Selected date {yesterday_day} using aria-label {selector} in frame (clicked twice) - Button text: '{button_text}' - Position: {target_button_position}")
                                 date_selected = True
                                 time.sleep(1)
                                 break
@@ -540,7 +627,7 @@ def select_yesterday_date(page):
                         break
         
         if not date_selected:
-            print("Could not find or click on date 18. All methods failed.")
+            print(f"Could not find or click on date {yesterday_day}. All methods failed.")
         
         # Step 4: Click the Confirm button
         print("Clicking Confirm button...")
@@ -586,7 +673,7 @@ def select_yesterday_date(page):
             print("Could not find or click Confirm button.")
             return False
         
-        print("Successfully selected yesterday's date (18th) and confirmed.")
+        print(f"Successfully selected yesterday's date ({yesterday_day} {yesterday_month} {yesterday_year}) and confirmed.")
         return True
         
     except Exception as e:
@@ -847,7 +934,7 @@ def scrape_and_push_reviews():
     
     with sync_playwright() as p:
         # Use existing context if login state is saved, otherwise headless=False for manual login
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
+        browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-gpu"])
         
         # Check if swiggy_login.json exists for persistent login
         if os.path.exists("swiggy_login.json"):
@@ -910,17 +997,23 @@ def scrape_and_push_reviews():
                         print("Clicked 'Continue'.")
                         time.sleep(3)
                     
-                    # For first RID of subsequent brands, need to go back and select new brand
+                    # For first RID of subsequent brands, refresh page and select new brand
                     elif rid_idx == 0:
-                        # Click back button to return to brand selection
-                        if not click_back_button(page):
-                            print("Failed to click back button, trying to navigate directly...")
-                            page.goto("https://partner.swiggy.com/business-metrics/customer-ratings", timeout=60000)
-                            page.wait_for_load_state("networkidle")
+                        # Refresh the page to start clean for new brand
+                        print(f"Refreshing page to start fresh for new brand: {brand}")
+                        page.reload(wait_until="networkidle")
+                        time.sleep(3)
                         
-                        time.sleep(2)
+                        # Try to close the popup if it appears after refresh
+                        try:
+                            popup = page.locator("text=No! Not needed").first
+                            if popup.is_visible():
+                                popup.click()
+                                print("Closed 'No! Not needed' popup after refresh.")
+                        except Exception:
+                            pass
                         
-                        # Select new brand
+                        # Select new brand after refresh
                         iframe = page.frame_locator("iframe").first
                         if iframe:
                             iframe.locator("input").first.fill(brand)
@@ -929,10 +1022,12 @@ def scrape_and_push_reviews():
                             brand_option = iframe.locator(f"text={brand}").first
                             if brand_option.is_visible():
                                 brand_option.click()
-                                print(f"Selected brand: {brand}")
+                                print(f"Selected brand after refresh: {brand}")
+                            else:
+                                print(f"Brand option '{brand}' not found in dropdown. Trying to continue anyway...")
                             
                             iframe.locator("text=Continue").first.click()
-                            print("Clicked 'Continue'.")
+                            print("Clicked 'Continue' after refresh.")
                             time.sleep(3)
                     
                     # For subsequent RIDs of same brand, just go back from outlet level
