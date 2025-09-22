@@ -410,21 +410,25 @@ def scrape_multiple_outlets(outlet_ids, report_date_label):
 
         try:
             print("🖱️ Clicking on 'View Business Reports'...")
-            report_btn = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]")
+            # Use the corrected XPath with id="root"
+            report_btn = page.locator("xpath=//*[@id='root']/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]")
             report_btn.click()
             page.wait_for_timeout(2000)
             print("✅ Successfully clicked View Business Reports")
         except Exception as e:
-            print(f"❌ Error clicking View Business Reports: {e}")
-            # Try alternative approach
+            print(f"❌ Error clicking View Business Reports with corrected XPath: {e}")
+            # Try alternative approaches
             print("🔍 Looking for alternative report buttons...")
             try:
                 alt_selectors = [
                     "text=View Business Reports",
                     "text=Business Reports",
-                    "text=Reports"
+                    "text=Reports",
+                    # Also try the old XPath as fallback
+                    "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]"
                 ]
                 
+                clicked = False
                 for selector in alt_selectors:
                     try:
                         element = page.locator(selector)
@@ -432,9 +436,13 @@ def scrape_multiple_outlets(outlet_ids, report_date_label):
                             element.click()
                             print(f"✅ Clicked reports using: {selector}")
                             page.wait_for_timeout(2000)
+                            clicked = True
                             break
                     except:
                         continue
+                
+                if not clicked:
+                    print("⚠️ Could not find reports button with any method")
             except:
                 pass
 
