@@ -4,6 +4,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import os
+import json
 
 # ========== Google Sheet Setup ==========
 CREDENTIALS_FILE = "service_account.json"
@@ -30,6 +31,34 @@ METRICS = [
     "Impressions", "Impressions to menu", "Menu to order", "Menu to cart", "Cart to order",
     "New users", "Repeat users", "Lapsed users", "Ads orders"
 ]
+
+# ========== Authentication Helper ==========
+def get_login_state():
+    """Get login state for Zomato authentication"""
+    login_file = "zomato_login.json"
+    
+    # Check if login file exists
+    if os.path.exists(login_file):
+        try:
+            with open(login_file, 'r') as f:
+                login_data = json.load(f)
+                print("✅ Found existing zomato_login.json file")
+                return login_data
+        except Exception as e:
+            print(f"⚠️ Error reading zomato_login.json: {e}")
+    
+    # Check for environment variables as fallback
+    zomato_cookies = os.getenv('ZOMATO_COOKIES')
+    if zomato_cookies:
+        try:
+            login_data = json.loads(zomato_cookies)
+            print("✅ Using ZOMATO_COOKIES environment variable")
+            return login_data
+        except Exception as e:
+            print(f"⚠️ Error parsing ZOMATO_COOKIES: {e}")
+    
+    print("⚠️ No authentication found - will need manual login")
+    return None
 
 # ========== Utility Functions ==========
 def click_dropdowns_in_frames(page, labels):
@@ -60,7 +89,7 @@ def select_yesterday_date_zomato(page):
     
     try:
         # Wait for calendar to load
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(3000)
         
         # Get all calendar day buttons with rdrDayNumber class
         day_buttons = page.locator("button.rdrDay .rdrDayNumber span").all()
@@ -181,340 +210,372 @@ def extract_third_last_values(text, metrics):
 # ========== Main Scraper ==========
 def scrape_multiple_outlets(outlet_ids, report_date_label):
     sheet = init_gsheet()
+    login_state = get_login_state()
+    
+    print(f"🚀 Starting scraper for {len(outlet_ids)} outlets on {report_date_label}")
+    print(f"📍 Environment: {'Render' if os.getenv('RENDER') else 'Local'}")
 
     with sync_playwright() as p:
         browser = None
         context = None
         page = None
         
-        # Try multiple browser configurations to avoid protocol errors
-        browser_configs = [
-            # Config 1: Chromium with maximum HTTP2 fixes
-            {
-                'browser_type': 'chromium',
-                'args': [
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-http2",
-                    "--disable-features=VizDisplayCompositor",
-                    "--disable-web-security",
-                    "--disable-features=TranslateUI",
-                    "--disable-dev-shm-usage",
-                    "--allow-running-insecure-content",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-extensions",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-features=TranslateUI,BlinkGenPropertyTrees",
-                    "--disable-ipc-flooding-protection",
-                    "--force-http1"  # Force HTTP1 instead of HTTP2
-                ]
-            },
-            # Config 2: Firefox fallback
-            {
-                'browser_type': 'firefox',
-                'args': []
-            },
-            # Config 3: Webkit fallback
-            {
-                'browser_type': 'webkit', 
-                'args': []
+        # Render-optimized browser configuration
+        try:
+            print("🌐 Launching browser optimized for Render environment...")
+            
+            # Render-specific browser args
+            browser_args = [
+                "--no-sandbox",
+                "--disable-setuid-sandbox", 
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                "--single-process",  # Important for Render
+                "--disable-gpu",
+                "--disable-http2",
+                "--disable-features=VizDisplayCompositor,TranslateUI,BlinkGenPropertyTrees",
+                "--disable-web-security",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-extensions",
+                "--disable-plugins",
+                "--disable-images",  # Speed up loading
+                "--disable-javascript",  # Will enable later if needed
+                "--force-http1"
+            ]
+            
+            browser = p.chromium.launch(
+                headless=True,
+                args=browser_args
+            )
+            
+            # Enhanced context for Render
+            context_options = {
+                "storage_state": login_state,
+                "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "ignore_https_errors": True,
+                "java_script_enabled": True,
+                "accept_downloads": False,
+                "bypass_csp": True,  # Bypass content security policy
+                "extra_http_headers": {
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "gzip, deflate",  # Removed br for compatibility
+                    "Connection": "keep-alive",
+                    "Upgrade-Insecure-Requests": "1",
+                    "Cache-Control": "no-cache"
+                }
             }
-        ]
-        
+            
+            context = browser.new_context(**context_options)
+            page = context.new_page()
+            
+            # Longer timeouts for Render's slower environment
+            page.set_default_navigation_timeout(180000)  # 3 minutes
+            page.set_default_timeout(90000)  # 1.5 minutes for elements
+            
+            print("✅ Browser successfully launched")
+                
+        except Exception as e:
+            print(f"❌ Browser launch failed: {e}")
+            raise Exception(f"Cannot initialize browser: {e}")
+
+        # Navigate with multiple strategies
+        print("🔗 Navigating to Zomato Partner Reporting Page...")
         page_loaded = False
         
-        for config in browser_configs:
-            try:
-                print(f"Trying {config['browser_type']} browser...")
-                
-                if config['browser_type'] == 'chromium':
-                    browser = p.chromium.launch(headless=True, args=config['args'])
-                elif config['browser_type'] == 'firefox':
-                    browser = p.firefox.launch(headless=True)
-                elif config['browser_type'] == 'webkit':
-                    browser = p.webkit.launch(headless=True)
-                
-                # Enhanced context with multiple fallback strategies
-                context = browser.new_context(
-                    storage_state="zomato_login.json" if os.path.exists("zomato_login.json") else None,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    ignore_https_errors=True,
-                    java_script_enabled=True,
-                    accept_downloads=False,
-                    extra_http_headers={
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.9",
-                        "Accept-Encoding": "gzip, deflate, br",
-                        "Connection": "keep-alive",
-                        "Upgrade-Insecure-Requests": "1",
-                        "Sec-Fetch-Dest": "document",
-                        "Sec-Fetch-Mode": "navigate",
-                        "Sec-Fetch-Site": "none",
-                        "Cache-Control": "max-age=0"
-                    }
-                )
-                
-                page = context.new_page()
-                
-                # Set additional page properties
-                page.set_default_navigation_timeout(120000)  # 2 minutes timeout
-                page.set_default_timeout(60000)  # 1 minute for elements
-                
-                print("Navigating to Zomato Partner Reporting Page...")
-                
-                # Multiple URL attempts with different strategies
-                urls_to_try = [
-                    "https://www.zomato.com/partners/onlineordering/reporting/",
-                    "https://www.zomato.com/partners/onlineordering/", 
-                    "https://www.zomato.com/partners/",
-                    "https://partners.zomato.com/onlineordering/reporting/",
-                    "https://partners.zomato.com/"
-                ]
-                
-                for url_idx, url in enumerate(urls_to_try):
-                    print(f"Trying URL {url_idx + 1}/{len(urls_to_try)}: {url}")
+        urls_to_try = [
+            "https://www.zomato.com/partners/onlineordering/reporting/",
+            "https://www.zomato.com/partners/onlineordering/",
+            "https://www.zomato.com/partners/",
+        ]
+        
+        for url in urls_to_try:
+            print(f"🔄 Trying URL: {url}")
+            
+            for attempt in range(3):  # 3 attempts per URL
+                try:
+                    print(f"   Attempt {attempt + 1}/3...")
                     
-                    try:
-                        # Strategy 1: Load with commit wait
-                        page.goto(url, wait_until='commit', timeout=30000)
-                        page.wait_for_timeout(2000)
-                        page.wait_for_load_state('domcontentloaded', timeout=30000) 
-                        print(f"Successfully loaded with commit strategy: {url}")
+                    # Try basic navigation first
+                    response = page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                    
+                    if response and response.ok:
+                        print(f"✅ Successfully loaded: {url}")
+                        page.wait_for_timeout(3000)  # Additional wait
                         page_loaded = True
                         break
+                    else:
+                        print(f"⚠️ Response not OK: {response.status if response else 'No response'}")
                         
-                    except Exception as e1:
-                        print(f"Commit strategy failed: {e1}")
-                        try:
-                            # Strategy 2: Load with domcontentloaded
-                            page.goto(url, wait_until='domcontentloaded', timeout=45000)
-                            print(f"Successfully loaded with domcontentloaded: {url}")
-                            page_loaded = True
-                            break
-                            
-                        except Exception as e2:
-                            print(f"Domcontentloaded strategy failed: {e2}")
-                            try:
-                                # Strategy 3: Load with networkidle
-                                page.goto(url, wait_until='networkidle', timeout=60000)
-                                print(f"Successfully loaded with networkidle: {url}")
-                                page_loaded = True
-                                break
-                                
-                            except Exception as e3:
-                                print(f"Networkidle strategy failed: {e3}")
-                                try:
-                                    # Strategy 4: Basic load without wait conditions
-                                    page.goto(url, timeout=30000)
-                                    page.wait_for_timeout(3000)  # Just wait 3 seconds
-                                    print(f"Successfully loaded with basic strategy: {url}")
-                                    page_loaded = True
-                                    break
-                                    
-                                except Exception as e4:
-                                    print(f"Basic strategy failed: {e4}")
-                                    continue
-                
-                if page_loaded:
-                    break  # Success with this browser config
-                else:
-                    # Clean up failed attempt
-                    if browser:
-                        browser.close()
-                        browser = None
+                except Exception as e:
+                    print(f"   ❌ Attempt {attempt + 1} failed: {e}")
+                    if attempt < 2:  # Not the last attempt
+                        page.wait_for_timeout(5000)  # Wait before retry
                         
-            except Exception as browser_error:
-                print(f"{config['browser_type']} browser failed completely: {browser_error}")
-                if browser:
-                    try:
-                        browser.close()
-                    except:
-                        pass
-                    browser = None
-                continue
+            if page_loaded:
+                break
         
         if not page_loaded:
-            raise Exception("All browsers and strategies failed. Cannot access Zomato partner page.")
-        
-        print(f"Successfully connected using {config['browser_type']} browser")
+            # Last resort: try to load any page and check if we're logged in
+            try:
+                print("🔄 Last resort: trying basic Zomato partners page...")
+                page.goto("https://www.zomato.com/partners/", timeout=60000)
+                page.wait_for_timeout(5000)
+                page_loaded = True
+                print("✅ Basic page loaded - will attempt to navigate to reports")
+            except Exception as e:
+                print(f"❌ All navigation attempts failed: {e}")
+                raise Exception("Cannot access Zomato partner pages - check authentication")
 
+        print("🔍 Checking authentication status...")
         page.wait_for_timeout(5000)
 
+        # Check if we need to login
+        current_url = page.url
+        print(f"Current URL: {current_url}")
+        
+        if "login" in current_url or "signin" in current_url:
+            print("❌ Not authenticated - need to update login credentials")
+            if os.getenv('RENDER'):
+                print("🏗️ Running on Render - authentication must be handled via environment variables")
+                print("Please set ZOMATO_COOKIES environment variable with valid session data")
+                raise Exception("Authentication required - set ZOMATO_COOKIES environment variable")
+            else:
+                print("💻 Running locally - manual intervention required")
+                input("Please login manually in the browser, then press Enter to continue...")
+
+        # Try to dismiss any popups
         try:
             okay_btn = page.locator("text=Okay")
-            if okay_btn.is_visible():
+            if okay_btn.is_visible(timeout=5000):
                 okay_btn.click()
                 page.wait_for_timeout(1000)
+                print("✅ Dismissed popup")
         except:
-            page.mouse.click(500, 300)
+            pass
 
-        try:
-            print("🖱️ Clicking on 'View Business Reports'...")
-            report_btn = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]")
-            report_btn.click()
-            page.wait_for_timeout(2000)
-        except Exception as e:
-            print(f"❌ Error clicking View Business Reports: {e}")
-
-        for idx, outlet_id in enumerate(outlet_ids):
-            print(f"\n🔁 Processing ID: {outlet_id}")
-
-            # Open All Outlets dropdown
-            page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[2]/div/div/div/span/span[2]").click()
-            page.wait_for_timeout(1000)
-
-            if idx == 0:
-                try:
-                    print("Switching to Daily view...")
-                    page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div/div/div[1]/div/div[1]/div[2]/span/span").click()
-                    page.wait_for_timeout(2000)
-                    
-                    print("Opening calendar by clicking 'Select date range'...")
-                    # Click on the calendar opener element
-                    calendar_opener_clicked = False
-                    
-                    # Try the specific XPath first
+        # Navigate to reports if not already there
+        if "reporting" not in page.url:
+            try:
+                print("🖱️ Clicking on 'View Business Reports'...")
+                report_selectors = [
+                    "text=View Business Reports",
+                    "text=Business Reports", 
+                    "text=Reports",
+                    "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[1]/div[2]"
+                ]
+                
+                clicked = False
+                for selector in report_selectors:
                     try:
-                        calendar_opener = page.locator("xpath=//*[@id='modal']/div/div/div[2]/div[2]/div/div/div[1]/div/div[2]/div/div/div/div[1]/div/span/span")
-                        if calendar_opener.is_visible():
-                            # Get button text to verify
-                            try:
-                                button_text = calendar_opener.inner_text()
-                                print(f"Found calendar opener with text: '{button_text}'")
-                            except:
-                                print("Could not retrieve calendar opener text")
-                            
-                            calendar_opener.click()
-                            print("Calendar opened using specific XPath.")
-                            calendar_opener_clicked = True
-                            page.wait_for_timeout(2000)
-                        else:
-                            print("Calendar opener XPath not visible")
-                    except Exception as e:
-                        print(f"Calendar opener XPath failed: {e}")
-                    
-                    # Try alternative selectors if XPath fails
-                    if not calendar_opener_clicked:
-                        print("Trying alternative selectors for calendar opener...")
-                        alternative_selectors = [
+                        element = page.locator(selector)
+                        if element.is_visible(timeout=10000):
+                            element.click()
+                            page.wait_for_timeout(3000)
+                            print(f"✅ Clicked report button using: {selector}")
+                            clicked = True
+                            break
+                    except:
+                        continue
+                
+                if not clicked:
+                    print("⚠️ Could not find report button - manual navigation may be needed")
+                    if not os.getenv('RENDER'):
+                        input("Please navigate to the reports page manually, then press Enter...")
+                        
+            except Exception as e:
+                print(f"❌ Error navigating to reports: {e}")
+
+        # Process outlets
+        for idx, outlet_id in enumerate(outlet_ids):
+            print(f"\n🔁 Processing outlet {idx + 1}/{len(outlet_ids)}: {outlet_id}")
+
+            try:
+                # Open All Outlets dropdown
+                dropdown_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[1]/div[2]/div/div/div/span/span[2]"
+                page.locator(dropdown_selector).click(timeout=30000)
+                page.wait_for_timeout(2000)
+
+                if idx == 0:
+                    # Date selection logic (only on first iteration)
+                    try:
+                        print("📅 Setting up date selection...")
+                        
+                        # Switch to Daily view
+                        daily_view_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div/div/div[1]/div/div[1]/div[2]/span/span"
+                        page.locator(daily_view_selector).click(timeout=20000)
+                        page.wait_for_timeout(3000)
+                        
+                        # Open calendar
+                        calendar_selectors = [
+                            "xpath=//*[@id='modal']/div/div/div[2]/div[2]/div/div/div[1]/div/div[2]/div/div/div/div[1]/div/span/span",
                             "text=Select date range",
-                            "span:has-text('Select date range')",
-                            "[class*='date']:has-text('Select')",
-                            "[class*='range']:has-text('Select')"
+                            "span:has-text('Select date range')"
                         ]
                         
-                        for selector in alternative_selectors:
+                        calendar_opened = False
+                        for selector in calendar_selectors:
                             try:
-                                element = page.locator(selector).first
-                                if element.is_visible():
+                                element = page.locator(selector)
+                                if element.is_visible(timeout=10000):
                                     element.click()
-                                    print(f"Calendar opened using selector: {selector}")
-                                    calendar_opener_clicked = True
                                     page.wait_for_timeout(2000)
+                                    print(f"✅ Calendar opened using: {selector}")
+                                    calendar_opened = True
                                     break
                             except:
                                 continue
-                    
-                    if not calendar_opener_clicked:
-                        print("Could not find calendar opener, proceeding with date selection...")
-                    
-                    print("Automatically selecting yesterday's date...")
-                    if not select_yesterday_date_zomato(page):
-                        print("Automatic date selection failed, falling back to manual selection")
-                        input(f"\nPlease change the date to {report_date_label} manually on dashboard, then press Enter...\n")
-                    else:
-                        print("Successfully selected yesterday's date automatically")
                         
-                except Exception as e:
-                    print(f"Error in date selection: {e}")
-                    print("Falling back to manual date selection")
-                    input(f"\nPlease change the date to {report_date_label} manually on dashboard, then press Enter...\n")
-            else:
-                print(f"🔁 Deselecting previously selected outlet ID: {outlet_ids[idx - 1]}")
-                try:
-                    dropdown_toggle = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span")
-                    dropdown_toggle.click()
-                    page.wait_for_timeout(1000)
+                        if calendar_opened:
+                            if not select_yesterday_date_zomato(page):
+                                print("⚠️ Automatic date selection failed")
+                        else:
+                            print("⚠️ Could not open calendar automatically")
+                            
+                    except Exception as e:
+                        print(f"⚠️ Date selection error: {e}")
 
-                    prev_id_locator = page.locator(f"text={outlet_ids[idx - 1]}").first
-                    if prev_id_locator.is_visible():
-                        prev_id_locator.click()
-                        print("✅ Deselected previous ID.")
-                    else:
-                        print("⚠️ Previous ID not visible.")
-                    page.wait_for_timeout(1000)
-                except Exception as e:
-                    print(f"⚠️ Error deselecting previous ID: {e}")
-
-            # Open dropdown again to select current ID
-            page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span").click()
-            page.wait_for_timeout(1000)
-
-            # Search and select current ID
-            search_box = page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div[1]/div/input")
-            search_box.fill("")
-            page.wait_for_timeout(500)
-            print(f"🔍 Searching for outlet ID: {outlet_id}")
-            search_box.fill(str(outlet_id))
-            page.wait_for_timeout(2000)
-
-            try:
-                match_locator = page.locator(f"text={outlet_id}").first
-                if match_locator.is_visible():
-                    match_locator.click()
-                    page.wait_for_timeout(1000)
-                    print("✅ Selected outlet.")
                 else:
-                    print("❌ No match found for this ID.")
-            except Exception as e:
-                print(f"❌ Could not select outlet for ID {outlet_id}: {e}")
+                    # Deselect previous outlet
+                    print(f"🔄 Deselecting previous outlet: {outlet_ids[idx - 1]}")
+                    try:
+                        prev_dropdown = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span"
+                        page.locator(prev_dropdown).click(timeout=20000)
+                        page.wait_for_timeout(2000)
 
-            print("📌 Applying outlet filter...")
-            page.locator("xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[3]/div[2]").click()
-            page.wait_for_timeout(3000)
+                        prev_id_element = page.locator(f"text={outlet_ids[idx - 1]}").first
+                        if prev_id_element.is_visible(timeout=10000):
+                            prev_id_element.click()
+                            page.wait_for_timeout(1000)
+                            print("✅ Previous outlet deselected")
+                    except Exception as e:
+                        print(f"⚠️ Error deselecting previous outlet: {e}")
 
-            print("🔽 Expanding dropdowns...")
-            click_dropdowns_in_frames(page, DROPDOWNS_TO_CLICK)
+                # Select current outlet
+                print(f"🔍 Searching for outlet: {outlet_id}")
+                
+                # Open dropdown for current selection
+                current_dropdown = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[1]/div[2]/span/span"
+                page.locator(current_dropdown).click(timeout=20000)
+                page.wait_for_timeout(2000)
 
-            print("📄 Extracting data...")
-            text_content = ""
-            for frame in page.frames:
-                try:
-                    text = frame.locator("body").inner_text()
-                    if text:
-                        text_content += text + "\n\n"
-                except:
+                # Search for outlet
+                search_selectors = [
+                    "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[2]/div[2]/div[1]/div/input",
+                    "input[placeholder*='Search']",
+                    "input[type='text']"
+                ]
+                
+                search_found = False
+                for selector in search_selectors:
+                    try:
+                        search_box = page.locator(selector)
+                        if search_box.is_visible(timeout=10000):
+                            search_box.fill("")
+                            page.wait_for_timeout(500)
+                            search_box.fill(str(outlet_id))
+                            page.wait_for_timeout(3000)
+                            print(f"✅ Searched using: {selector}")
+                            search_found = True
+                            break
+                    except:
+                        continue
+
+                if not search_found:
+                    print("⚠️ Could not find search box")
                     continue
 
-            parsed_data = extract_third_last_values(text_content, METRICS)
-
-            print(f"\n📄 Summary for {outlet_id}:\n")
-            for k, v in parsed_data.items():
-                print(f"{k}: {v}")
+                # Select the outlet
                 try:
-                    # Clean and convert RID and metric values
-                    outlet_id_int = int(outlet_id)
-                    if isinstance(v, str):
-                        if '₹' in v:
-                            cleaned_value = float(v.replace('₹', '').replace(',', ''))
-                        elif '%' in v:
-                            cleaned_value = float(v.replace('%', '').replace(',', ''))
-                        else:
-                            cleaned_value = float(v.replace(',', ''))
+                    outlet_element = page.locator(f"text={outlet_id}").first
+                    if outlet_element.is_visible(timeout=15000):
+                        outlet_element.click()
+                        page.wait_for_timeout(2000)
+                        print("✅ Outlet selected")
                     else:
-                        cleaned_value = v
-
-                    # Append row as values
-                    sheet.append_row(
-                        [report_date_label, outlet_id_int, k, cleaned_value, "Zomato"],
-                        value_input_option='USER_ENTERED'
-                    )
+                        print(f"❌ Outlet {outlet_id} not found in dropdown")
+                        continue
                 except Exception as e:
-                    print(f"⚠️ Google Sheet error for {k}: {e}")
+                    print(f"❌ Error selecting outlet: {e}")
+                    continue
 
-        input("\n✅ Done. Press Enter to exit...")
+                # Apply filter
+                print("📌 Applying outlet filter...")
+                apply_filter_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[3]/div[2]/div/div/div[3]/div[2]"
+                page.locator(apply_filter_selector).click(timeout=20000)
+                page.wait_for_timeout(5000)  # Longer wait for data to load
+
+                # Expand dropdowns
+                print("🔽 Expanding dropdowns...")
+                click_dropdowns_in_frames(page, DROPDOWNS_TO_CLICK)
+
+                # Extract data
+                print("📊 Extracting metrics data...")
+                text_content = ""
+                for frame in page.frames:
+                    try:
+                        text = frame.locator("body").inner_text()
+                        if text and len(text) > 100:  # Only consider substantial content
+                            text_content += text + "\n\n"
+                    except:
+                        continue
+
+                if not text_content:
+                    # Try main page if frames don't work
+                    try:
+                        text_content = page.locator("body").inner_text()
+                    except:
+                        print("❌ Could not extract any text content")
+                        continue
+
+                parsed_data = extract_third_last_values(text_content, METRICS)
+
+                # Log and save data
+                print(f"\n📊 Data for outlet {outlet_id}:")
+                successful_saves = 0
+                
+                for metric, value in parsed_data.items():
+                    print(f"  {metric}: {value}")
+                    
+                    try:
+                        # Clean and convert values
+                        outlet_id_int = int(outlet_id)
+                        if isinstance(value, str) and value not in ["N/A", "Not found"]:
+                            if '₹' in value:
+                                cleaned_value = float(value.replace('₹', '').replace(',', ''))
+                            elif '%' in value:
+                                cleaned_value = float(value.replace('%', '').replace(',', ''))
+                            else:
+                                cleaned_value = float(value.replace(',', ''))
+                        else:
+                            cleaned_value = value
+
+                        # Append to Google Sheet
+                        sheet.append_row(
+                            [report_date_label, outlet_id_int, metric, cleaned_value, "Zomato"],
+                            value_input_option='USER_ENTERED'
+                        )
+                        successful_saves += 1
+                        
+                    except Exception as e:
+                        print(f"  ⚠️ Sheet error for {metric}: {e}")
+
+                print(f"✅ Successfully saved {successful_saves}/{len(parsed_data)} metrics for outlet {outlet_id}")
+
+            except Exception as e:
+                print(f"❌ Error processing outlet {outlet_id}: {e}")
+                continue
+
+        print(f"\n🎉 Scraping completed for {len(outlet_ids)} outlets")
+        
+        # Don't wait for input on Render
+        if not os.getenv('RENDER'):
+            input("\n✅ All outlets processed. Press Enter to exit...")
+            
         browser.close()
 
 # ========== Run Script ==========
