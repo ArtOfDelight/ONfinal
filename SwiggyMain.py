@@ -421,7 +421,7 @@ def open_and_cycle_outlets():
 
     with sync_playwright() as p:
         try:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=False)
             context = browser.new_context(storage_state="swiggy_login.json")
             page = context.new_page()
             page.set_default_timeout(30000)  # Better timeout
