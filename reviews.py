@@ -934,7 +934,7 @@ def scrape_and_push_reviews():
     
     with sync_playwright() as p:
         # Use existing context if login state is saved, otherwise headless=False for manual login
-        browser = p.chromium.launch(headless=False, args=["--no-sandbox", "--disable-gpu"])
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-gpu"])
         
         # Check if swiggy_login.json exists for persistent login
         if os.path.exists("swiggy_login.json"):
