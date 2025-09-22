@@ -15,19 +15,16 @@ from datetime import datetime, timedelta
 if __name__ == "__main__":
     # Load environment variables
     load_dotenv()
-    print(f"Starting Multi-Platform Automation Sequence at {os.getenv('RENDER', 'local')}...")
+    print(f"Starting Zomato Main Dashboard Scraper at {os.getenv('RENDER', 'local')}...")
     
-    # Automatically calculate yesterday's date for both platforms
+    # Automatically calculate yesterday's date
     yesterday = datetime.now() - timedelta(days=1)
     
-    # Set up date parameters automatically
+    # Set up date parameters for Zomato
     print("\nSetting up date parameters...")
-    swiggy_date_label = yesterday.strftime("%Y-%m-%d")  # YYYY-MM-DD format for Swiggy
     zomato_date_label = yesterday.strftime("%Y-%m-%d")   # YYYY-MM-DD format for Zomato
     
-    print(f"Using yesterday's date: {swiggy_date_label}")
-    print(f"Swiggy date label: {swiggy_date_label}")
-    print(f"Zomato date label: {zomato_date_label}")
+    print(f"Using yesterday's date: {zomato_date_label}")
     
     zomato_outlet_ids = [
         19418061, 19595967, 57750, 19501520,
@@ -44,21 +41,20 @@ if __name__ == "__main__":
     #     print(f"Swiggy Complaints scraper failed: {e}")
 
     # --- Swiggy Reviews ---
-    try:
-        print("\nStep 2: Fetching Swiggy Reviews...")
-        scrape_swiggy_reviews()
-        print("Swiggy Reviews completed")
-    except Exception as e:
-        print(f"Swiggy Reviews scraper failed: {e}")
+    # try:
+    #     print("\nStep 2: Fetching Swiggy Reviews...")
+    #     scrape_swiggy_reviews()
+    #     print("Swiggy Reviews completed")
+    # except Exception as e:
+    #     print(f"Swiggy Reviews scraper failed: {e}")
 
     # --- Swiggy Main Dashboard ---
-    try:
-        print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
-        # Note: The Swiggy scraper now handles date automatically, but we can still pass the label if needed
-        scrape_swiggy_main()  # Removed the parameter since the updated script handles it automatically
-        print("Swiggy Main Dashboard completed")
-    except Exception as e:
-        print(f"Swiggy Main Dashboard scraper failed: {e}")
+    # try:
+    #     print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
+    #     scrape_swiggy_main()
+    #     print("Swiggy Main Dashboard completed")
+    # except Exception as e:
+    #     print(f"Swiggy Main Dashboard scraper failed: {e}")
 
     # --- Zomato Complaints ---
     # try:
@@ -78,10 +74,10 @@ if __name__ == "__main__":
 
     # --- Zomato Main Dashboard ---
     try:
-        print("\nStep 6: Running Zomato Main Dashboard Scraper...")
+        print("\nRunning Zomato Main Dashboard Scraper...")
         scrape_zomato_main(zomato_outlet_ids, zomato_date_label)
         print("Zomato Main Dashboard completed")
     except Exception as e:
         print(f"Zomato Main Dashboard scraper failed: {e}")
 
-    print("\nAll scraping tasks complete.")
+    print("\nZomato Main Dashboard scraping task complete.")
