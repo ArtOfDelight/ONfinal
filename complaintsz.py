@@ -8,7 +8,6 @@ import time
 import json
 import hashlib
 from dotenv import load_dotenv
-from pyvirtualdisplay import Display
 
 # === Load environment variables and API keys ===
 load_dotenv()
@@ -184,120 +183,219 @@ def scrape_and_push_complaints():
                 seen_hashes.add(complaint_hash)
     print(f"📊 Loaded {len(seen_hashes)} existing complaint hashes from sheet.")
 
-    # Start virtual display
-    display = Display(visible=0, size=(1920, 1080))
-    display.start()
-    print("🖥️ Virtual display started.")
-
     try:
         with sync_playwright() as p:
-            # Launch browser in headed mode on virtual display
+            # Launch browser in headless mode with optimized arguments
             browser = p.chromium.launch(
-                headless=False,  # Run in headed mode for virtual display
+                headless=True,  # Run in headless mode
                 args=[
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-features=TranslateUI',
+                    '--disable-extensions',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-default-apps',
+                    '--mute-audio',
+                    '--no-first-run',
+                    '--no-default-browser-check',
                     '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process',
+                    '--disable-features=VizDisplayCompositor,IsolateOrigins,site-per-process',
                     '--disable-blink-features=AutomationControlled',
-                    '--window-size=1920,1080'
+                    '--window-size=1920,1080',
+                    '--start-maximized',
+                    '--disable-infobars',
+                    '--disable-notifications',
+                    '--disable-popup-blocking'
                 ]
             )
 
-            # Create context with anti-detection settings
+            # Create context with anti-detection settings optimized for headless
             try:
                 context = browser.new_context(
                     storage_state="zomato_login.json" if os.path.exists("zomato_login.json") else None,
                     viewport={"width": 1920, "height": 1080},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                     java_script_enabled=True,
-                    ignore_https_errors=True
+                    ignore_https_errors=True,
+                    bypass_csp=True,
+                    extra_http_headers={
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'DNT': '1',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Cache-Control': 'max-age=0'
+                    }
                 )
 
-                # Add anti-detection script to spoof browser properties
+                # Enhanced anti-detection script for headless mode
                 context.add_init_script("""
+                    // Override the navigator.webdriver property
                     Object.defineProperty(navigator, 'webdriver', {
-                        get: () => false
+                        get: () => undefined
                     });
+                    
+                    // Mock navigator properties
                     window.navigator.chrome = {
-                        runtime: {}
+                        runtime: {},
+                        loadTimes: function() {},
+                        csi: function() {},
+                        webstore: {}
                     };
+                    
+                    // Override plugins
                     Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3]
+                        get: () => [1, 2, 3, 4, 5]
                     });
+                    
+                    // Override languages
                     Object.defineProperty(navigator, 'languages', {
                         get: () => ['en-US', 'en']
+                    });
+                    
+                    // Override permissions
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: Notification.permission }) :
+                            originalQuery(parameters)
+                    );
+                    
+                    // Mock screen properties
+                    Object.defineProperty(screen, 'colorDepth', {
+                        get: () => 24
+                    });
+                    
+                    Object.defineProperty(screen, 'pixelDepth', {
+                        get: () => 24
+                    });
+                    
+                    // Remove headless indicators
+                    delete navigator.__proto__.webdriver;
+                    
+                    // Mock getBattery API
+                    navigator.getBattery = () => Promise.resolve({
+                        charging: true,
+                        chargingTime: 0,
+                        dischargingTime: Infinity,
+                        level: 1
                     });
                 """)
             except Exception as e:
                 print(f"⚠️ Could not load storage state or create context: {e}. Creating new context.")
                 context = browser.new_context(
                     viewport={"width": 1920, "height": 1080},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
 
             page = context.new_page()
             
-            # Set longer timeout for navigation
-            page.set_default_timeout(30000)
+            # Set longer timeout for navigation and add error handling
+            page.set_default_timeout(60000)  # Increased timeout for headless mode
+            page.set_default_navigation_timeout(60000)
             
             try:
                 print("🌐 Navigating to Zomato partner portal...")
-                page.goto("https://www.zomato.com/partners/onlineordering/customerIssues/", wait_until="networkidle")
-                page.wait_for_timeout(5000)
+                
+                # Navigate with better error handling
+                try:
+                    page.goto("https://www.zomato.com/partners/onlineordering/customerIssues/", 
+                             wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(8000)  # Increased wait time for headless
+                    
+                    # Wait for page to be fully loaded
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    
+                except Exception as nav_error:
+                    print(f"❌ Navigation failed: {nav_error}")
+                    print("🔄 Retrying navigation...")
+                    page.goto("https://www.zomato.com/partners/onlineordering/customerIssues/", 
+                             wait_until="load", timeout=60000)
+                    page.wait_for_timeout(10000)
 
-                # Handle potential popups/overlays
+                # Handle potential popups/overlays with better targeting
                 print("🔧 Handling potential popups...")
-                for y in [200, 300, 400]:
-                    try:
-                        page.mouse.click(1100, y)
-                        page.wait_for_timeout(500)
-                    except:
-                        pass
+                try:
+                    # Try to dismiss any modal or overlay
+                    page.evaluate("""
+                        // Close any potential modals
+                        const modals = document.querySelectorAll('[role="dialog"], .modal, .overlay, .popup');
+                        modals.forEach(modal => {
+                            if (modal.style) modal.style.display = 'none';
+                        });
+                        
+                        // Click dismiss buttons
+                        const dismissButtons = document.querySelectorAll('[aria-label*="close"], [aria-label*="dismiss"], .close, .dismiss');
+                        dismissButtons.forEach(btn => {
+                            if (btn.click) btn.click();
+                        });
+                    """)
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    pass
 
                 for idx, outlet_id in enumerate(OUTLET_IDS):
                     print(f"\n🔁 Processing Outlet ID: {outlet_id} ({idx + 1}/{len(OUTLET_IDS)})")
 
                     try:
-                        # Wait for and click outlet dropdown
+                        # Wait for and click outlet dropdown with better error handling
                         dropdown_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[1]/div/div[2]/span"
                         
-                        if not wait_for_element_with_retry(page, dropdown_selector):
+                        if not wait_for_element_with_retry(page, dropdown_selector, timeout=15000):
                             print(f"❌ Could not find outlet dropdown for {outlet_id}. Skipping.")
                             continue
                         
-                        page.click(dropdown_selector)
+                        # Scroll to element and click
+                        page.locator(dropdown_selector).scroll_into_view_if_needed()
                         page.wait_for_timeout(1000)
+                        page.click(dropdown_selector)
+                        page.wait_for_timeout(2000)  # Increased wait time
 
                         # Clear previous selection if not first outlet
                         if idx > 0:
                             prev_id = OUTLET_IDS[idx - 1]
                             try:
                                 page.locator(f"text=ID: {prev_id}").first.click()
-                                page.wait_for_timeout(500)
+                                page.wait_for_timeout(1000)
                             except:
                                 pass
 
-                        # Enter outlet ID
+                        # Enter outlet ID with better targeting
                         input_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[2]/div[1]/div/div/div/div/div/div/div/input"
+                        
+                        # Clear and fill input
+                        page.locator(input_selector).clear()
+                        page.wait_for_timeout(500)
                         page.fill(input_selector, outlet_id)
-                        page.wait_for_timeout(1500)
+                        page.wait_for_timeout(2000)
                         
                         # Select the outlet
                         page.locator(f"text=ID: {outlet_id}").first.click()
-                        page.wait_for_timeout(800)
+                        page.wait_for_timeout(1500)
 
                         # Click apply/search button
                         apply_button_selector = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[1]/div/div[2]/div[2]/div/div/div[3]/div[2]/div[4]/div[2]"
                         page.click(apply_button_selector)
-                        page.wait_for_timeout(3000)
+                        page.wait_for_timeout(5000)  # Increased wait time for results
 
-                        # Find view details buttons
-                        view_buttons = page.locator(".css-1ttmdgu > .css-c4te0e > .css-19i1v5i").filter(has_text="View details")
-                        total = view_buttons.count()
-                        print(f"🔍 Found {total} complaints for outlet {outlet_id}.")
+                        # Find view details buttons with better error handling
+                        try:
+                            view_buttons = page.locator(".css-1ttmdgu > .css-c4te0e > .css-19i1v5i").filter(has_text="View details")
+                            total = view_buttons.count()
+                            print(f"🔍 Found {total} complaints for outlet {outlet_id}.")
+                        except Exception as e:
+                            print(f"⚠️ Error finding view buttons: {e}")
+                            total = 0
 
                         if total == 0:
                             print(f"ℹ️ No complaints found for outlet {outlet_id}. Moving to next outlet.")
@@ -314,23 +412,31 @@ def scrape_and_push_complaints():
                                     print(f"⚠️ Not enough 'View details' buttons found for complaint {i+1}/{total}. Skipping.")
                                     continue
 
-                                # Click view details
-                                view_buttons.nth(i).scroll_into_view_if_needed()
-                                page.wait_for_timeout(500)
-                                view_buttons.nth(i).click()
-                                page.wait_for_timeout(3000)
+                                # Click view details with better error handling
+                                try:
+                                    view_buttons.nth(i).scroll_into_view_if_needed()
+                                    page.wait_for_timeout(1000)
+                                    view_buttons.nth(i).click()
+                                    page.wait_for_timeout(5000)  # Increased wait time for modal
+                                except Exception as click_error:
+                                    print(f"⚠️ Failed to click view details button: {click_error}")
+                                    continue
 
                                 # Try to click "Order details" if available
                                 try:
                                     order_details_xpath = "xpath=/html/body/div[1]/div/div[2]/div/div/div/div/div[2]/div/div[2]/div[2]/div/div[2]/div/div[2]/div[2]/div/div[1]/div[3]/div[1]/div/div[2]/div/div[2]"
-                                    if page.locator(order_details_xpath).first.is_visible(timeout=2000):
+                                    if page.locator(order_details_xpath).first.is_visible(timeout=3000):
                                         page.locator(order_details_xpath).first.click()
-                                        page.wait_for_timeout(1500)
+                                        page.wait_for_timeout(2000)
                                 except Exception:
                                     print("    ℹ️ 'Order details' not found or not clickable. Continuing...")
 
-                                # Extract complaint text
-                                raw_text = page.locator("body").inner_text(timeout=10000)
+                                # Extract complaint text with better error handling
+                                try:
+                                    raw_text = page.locator("body").inner_text(timeout=15000)
+                                except Exception as text_error:
+                                    print(f"⚠️ Failed to extract text: {text_error}")
+                                    continue
 
                                 # Parse with Gemini
                                 parsed_complaint = parse_complaint_with_gemini(raw_text, outlet_id)
@@ -347,39 +453,62 @@ def scrape_and_push_complaints():
                                 else:
                                     print(f"❌ Failed to parse complaint {i+1}")
 
-                                # Close modal
-                                page.keyboard.press("Escape")
-                                page.wait_for_timeout(2000)
+                                # Close modal with multiple methods
+                                try:
+                                    page.keyboard.press("Escape")
+                                    page.wait_for_timeout(2000)
+                                    
+                                    # Also try clicking close button if escape doesn't work
+                                    close_buttons = page.locator("[aria-label*='close'], .close, [data-testid*='close']")
+                                    if close_buttons.count() > 0:
+                                        close_buttons.first.click()
+                                        page.wait_for_timeout(1000)
+                                except Exception:
+                                    pass
 
                                 # Verify modal is closed and refresh page for next complaint
                                 if i < total - 1:  # Don't refresh on last complaint
                                     print("    🔄 Refreshing for next complaint...")
-                                    page.reload(wait_until="networkidle")
-                                    page.wait_for_timeout(3000)
+                                    page.reload(wait_until="domcontentloaded", timeout=60000)
+                                    page.wait_for_timeout(5000)
+                                    
+                                    # Wait for stable state
+                                    page.wait_for_load_state("networkidle", timeout=30000)
 
                                     # Handle popups after refresh
-                                    for y in [200, 300, 400]:
-                                        try:
-                                            page.mouse.click(1100, y)
-                                            page.wait_for_timeout(500)
-                                        except:
-                                            pass
+                                    try:
+                                        page.evaluate("""
+                                            const modals = document.querySelectorAll('[role="dialog"], .modal, .overlay, .popup');
+                                            modals.forEach(modal => {
+                                                if (modal.style) modal.style.display = 'none';
+                                            });
+                                        """)
+                                        page.wait_for_timeout(1000)
+                                    except:
+                                        pass
 
-                                    # Re-select outlet
-                                    page.click(dropdown_selector)
-                                    page.wait_for_timeout(1000)
-                                    page.fill(input_selector, outlet_id)
-                                    page.wait_for_timeout(1500)
-                                    page.locator(f"text=ID: {outlet_id}").first.click()
-                                    page.wait_for_timeout(800)
-                                    page.click(apply_button_selector)
-                                    page.wait_for_timeout(3000)
+                                    # Re-select outlet with better error handling
+                                    try:
+                                        page.click(dropdown_selector, timeout=10000)
+                                        page.wait_for_timeout(2000)
+                                        page.fill(input_selector, outlet_id)
+                                        page.wait_for_timeout(2000)
+                                        page.locator(f"text=ID: {outlet_id}").first.click()
+                                        page.wait_for_timeout(1500)
+                                        page.click(apply_button_selector)
+                                        page.wait_for_timeout(5000)
+                                    except Exception as reselect_error:
+                                        print(f"⚠️ Error re-selecting outlet: {reselect_error}")
+                                        break
 
                             except Exception as e:
                                 print(f"❌ Error processing complaint {i+1}/{total} for outlet {outlet_id}: {e}")
                                 # Try to close any open modals
-                                page.keyboard.press("Escape")
-                                page.wait_for_timeout(1000)
+                                try:
+                                    page.keyboard.press("Escape")
+                                    page.wait_for_timeout(1000)
+                                except:
+                                    pass
                                 continue
 
                     except Exception as e:
@@ -387,17 +516,23 @@ def scrape_and_push_complaints():
                         continue
 
                     print(f"✅ Completed outlet {outlet_id}")
-                    page.wait_for_timeout(2000)
+                    page.wait_for_timeout(3000)
 
             except Exception as e:
                 print(f"❌ Critical error during scraping: {e}")
             finally:
                 print("🧹 Cleaning up browser...")
-                browser.close()
+                try:
+                    context.close()
+                except:
+                    pass
+                try:
+                    browser.close()
+                except:
+                    pass
 
-    finally:
-        print("🧹 Stopping virtual display...")
-        display.stop()
+    except Exception as e:
+        print(f"❌ Failed to initialize Playwright: {e}")
 
     print("✅ Scraping completed successfully!")
 
