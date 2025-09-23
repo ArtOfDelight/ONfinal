@@ -289,67 +289,69 @@ def convert_value(val):
         logger.warning(f"Could not convert value to number: {val}")
         return "N/A"
 
-# === Function to select Yesterday option ===
-def select_yesterday_option(page):
-    """Selects the Yesterday option using the provided XPath."""
-    logger.info("Selecting Yesterday option...")
-    yesterday_xpath = "xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div/div/div[3]/div[2]/div[1]"
-    yesterday_clicked = False
+# === Function to select Custom date option and pick specific date ===
+def select_custom_date_option(page, target_date):
+    """Selects the Custom option and picks the target date from calendar."""
+    logger.info(f"Selecting Custom date option and picking date: {target_date.strftime('%d-%m-%Y')}...")
+    
+    # XPath for Custom button as provided by user
+    custom_xpath = "xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div/div/div[7]/div[2]/div"
+    custom_clicked = False
     
     # Try on main page first
     try:
-        yesterday_button = page.locator(yesterday_xpath)
-        if yesterday_button.is_visible():
+        custom_button = page.locator(custom_xpath)
+        if custom_button.is_visible():
             # Get button text to verify
             try:
-                button_text = yesterday_button.inner_text()
-                logger.info(f"Found Yesterday button with text: '{button_text}'")
+                button_text = custom_button.inner_text()
+                logger.info(f"Found Custom button with text: '{button_text}'")
             except:
-                logger.info("Could not retrieve Yesterday button text")
+                logger.info("Could not retrieve Custom button text")
             
-            yesterday_button.click()
-            logger.info("Yesterday option selected using XPath on main page.")
-            yesterday_clicked = True
-            # Longer wait for UI to update after Yesterday selection
-            page.wait_for_timeout(3000)
+            custom_button.click()
+            logger.info("Custom option selected using XPath on main page.")
+            custom_clicked = True
+            # Wait for calendar to open
+            page.wait_for_timeout(2000)
         else:
-            logger.info("Yesterday button not visible on main page")
+            logger.info("Custom button not visible on main page")
     except Exception as e:
-        logger.info(f"Main page Yesterday XPath failed: {e}")
+        logger.info(f"Main page Custom XPath failed: {e}")
     
     # Try in frames if main page didn't work
-    if not yesterday_clicked:
-        logger.info("Trying Yesterday button in frames...")
+    if not custom_clicked:
+        logger.info("Trying Custom button in frames...")
         for frame in page.frames:
             try:
-                yesterday_button_frame = frame.locator(yesterday_xpath)
-                if yesterday_button_frame.is_visible():
+                custom_button_frame = frame.locator(custom_xpath)
+                if custom_button_frame.is_visible():
                     # Get button text to verify
                     try:
-                        button_text = yesterday_button_frame.inner_text()
-                        logger.info(f"Found Yesterday button in frame with text: '{button_text}'")
+                        button_text = custom_button_frame.inner_text()
+                        logger.info(f"Found Custom button in frame with text: '{button_text}'")
                     except:
-                        logger.info("Could not retrieve Yesterday button text from frame")
+                        logger.info("Could not retrieve Custom button text from frame")
                     
-                    yesterday_button_frame.click()
-                    logger.info("Yesterday option selected using XPath in frame.")
-                    yesterday_clicked = True
-                    # Longer wait for UI to update after Yesterday selection
-                    page.wait_for_timeout(3000)
+                    custom_button_frame.click()
+                    logger.info("Custom option selected using XPath in frame.")
+                    custom_clicked = True
+                    # Wait for calendar to open
+                    page.wait_for_timeout(2000)
                     break
             except Exception as e:
-                logger.info(f"Frame Yesterday XPath failed: {e}")
+                logger.info(f"Frame Custom XPath failed: {e}")
                 continue
     
     # Try alternative selectors if XPath fails
-    if not yesterday_clicked:
-        logger.info("Trying alternative selectors for Yesterday...")
+    if not custom_clicked:
+        logger.info("Trying alternative selectors for Custom...")
         alternative_selectors = [
-            "text=Yesterday",
-            "button:has-text('Yesterday')",
-            "div:has-text('Yesterday')",
-            "[data-testid*='yesterday']",
-            "[class*='yesterday']"
+            "text=Custom",
+            "button:has-text('Custom')",
+            "div:has-text('Custom')",
+            "[data-testid*='custom']",
+            "[class*='custom']"
         ]
         
         # Try on main page
@@ -360,21 +362,21 @@ def select_yesterday_option(page):
                     # Get button text to verify
                     try:
                         button_text = element.inner_text()
-                        logger.info(f"Found Yesterday button with alternative selector with text: '{button_text}'")
+                        logger.info(f"Found Custom button with alternative selector with text: '{button_text}'")
                     except:
                         logger.info("Could not retrieve button text with alternative selector")
                     
                     element.click()
-                    logger.info(f"Yesterday option selected using selector: {selector}")
-                    yesterday_clicked = True
-                    # Longer wait for UI to update after Yesterday selection
-                    page.wait_for_timeout(3000)
+                    logger.info(f"Custom option selected using selector: {selector}")
+                    custom_clicked = True
+                    # Wait for calendar to open
+                    page.wait_for_timeout(2000)
                     break
             except:
                 continue
         
         # Try in frames
-        if not yesterday_clicked:
+        if not custom_clicked:
             for frame in page.frames:
                 for selector in alternative_selectors:
                     try:
@@ -383,26 +385,234 @@ def select_yesterday_option(page):
                             # Get button text to verify
                             try:
                                 button_text = element.inner_text()
-                                logger.info(f"Found Yesterday button in frame with alternative selector with text: '{button_text}'")
+                                logger.info(f"Found Custom button in frame with alternative selector with text: '{button_text}'")
                             except:
                                 logger.info("Could not retrieve button text from frame with alternative selector")
                             
                             element.click()
-                            logger.info(f"Yesterday option selected in frame using selector: {selector}")
-                            yesterday_clicked = True
-                            # Longer wait for UI to update after Yesterday selection
-                            page.wait_for_timeout(3000)
+                            logger.info(f"Custom option selected in frame using selector: {selector}")
+                            custom_clicked = True
+                            # Wait for calendar to open
+                            page.wait_for_timeout(2000)
                             break
                     except:
                         continue
-                if yesterday_clicked:
+                if custom_clicked:
                     break
     
-    if yesterday_clicked:
-        logger.info("Successfully selected Yesterday option.")
-        return True
+    if not custom_clicked:
+        logger.warning("Could not find or click Custom option using any method.")
+        return False
+    
+    # Now select the specific date from calendar
+    logger.info(f"Calendar opened, now selecting date: {target_date.day}")
+    target_day = target_date.day
+    
+    # Base XPath pattern for day buttons (user provided pattern)
+    base_xpath = "/html/body/div[1]/div/div/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[3]/div/div[2]/div/div/div/div[2]"
+    
+    # First, inspect the first few buttons to understand calendar layout
+    logger.info("Inspecting calendar layout...")
+    calendar_days = []
+    
+    try:
+        # Check first 10 buttons to understand the calendar structure
+        for i in range(1, 11):
+            button_xpath = f"xpath={base_xpath}/button[{i}]/abbr"
+            try:
+                day_button = page.locator(button_xpath)
+                if day_button.is_visible():
+                    day_text = day_button.inner_text().strip()
+                    calendar_days.append((i, day_text))
+                    logger.info(f"Button {i}: '{day_text}'")
+            except:
+                continue
+        
+        # Also try in frames
+        if not calendar_days:
+            for frame in page.frames:
+                try:
+                    for i in range(1, 11):
+                        button_xpath = f"xpath={base_xpath}/button[{i}]/abbr"
+                        day_button = frame.locator(button_xpath)
+                        if day_button.is_visible():
+                            day_text = day_button.inner_text().strip()
+                            calendar_days.append((i, day_text))
+                            logger.info(f"Frame Button {i}: '{day_text}'")
+                except:
+                    continue
+                if calendar_days:
+                    break
+                    
+    except Exception as e:
+        logger.warning(f"Error inspecting calendar: {e}")
+    
+    # Find and click the target day TWICE
+    day_clicked = False
+    target_day_str = str(target_day)
+    
+    # Search through all calendar buttons (up to 42 for a full month view)
+    for i in range(1, 43):
+        button_xpath = f"xpath={base_xpath}/button[{i}]/abbr"
+        
+        try:
+            # Try on main page first
+            day_button = page.locator(button_xpath)
+            if day_button.is_visible():
+                day_text = day_button.inner_text().strip()
+                if day_text == target_day_str:
+                    # Click the day TWICE as requested
+                    day_button.click()
+                    logger.info(f"First click on day {target_day} using button {i} on main page")
+                    page.wait_for_timeout(500)
+                    day_button.click()
+                    logger.info(f"Second click on day {target_day} using button {i} on main page")
+                    day_clicked = True
+                    page.wait_for_timeout(1000)
+                    break
+        except:
+            pass
+        
+        # Try in frames if main page didn't work
+        if not day_clicked:
+            for frame in page.frames:
+                try:
+                    day_button_frame = frame.locator(button_xpath)
+                    if day_button_frame.is_visible():
+                        day_text = day_button_frame.inner_text().strip()
+                        if day_text == target_day_str:
+                            # Click the day TWICE as requested
+                            day_button_frame.click()
+                            logger.info(f"First click on day {target_day} using button {i} in frame")
+                            page.wait_for_timeout(500)
+                            day_button_frame.click()
+                            logger.info(f"Second click on day {target_day} using button {i} in frame")
+                            day_clicked = True
+                            page.wait_for_timeout(1000)
+                            break
+                except:
+                    continue
+            if day_clicked:
+                break
+    
+    if day_clicked:
+        logger.info(f"Successfully clicked day {target_day} twice")
+        
+        # Wait for UI to update after double-clicking the day
+        page.wait_for_timeout(2000)
+        
+        # Now click the Confirm button using the provided XPath
+        confirm_xpath = "xpath=//*[@id=\"mfe-root\"]/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[4]/div"
+        confirm_clicked = False
+        
+        # Try on main page first
+        try:
+            confirm_button = page.locator(confirm_xpath)
+            if confirm_button.is_visible():
+                # Get button text to verify
+                try:
+                    button_text = confirm_button.inner_text()
+                    logger.info(f"Found Confirm button with text: '{button_text}'")
+                except:
+                    logger.info("Could not retrieve Confirm button text")
+                
+                confirm_button.click()
+                logger.info("Confirm button clicked on main page")
+                confirm_clicked = True
+                page.wait_for_timeout(2000)
+            else:
+                logger.info("Confirm button not visible on main page")
+        except Exception as e:
+            logger.info(f"Main page Confirm button failed: {e}")
+        
+        # Try in frames if main page didn't work
+        if not confirm_clicked:
+            logger.info("Trying Confirm button in frames...")
+            for frame in page.frames:
+                try:
+                    confirm_button_frame = frame.locator(confirm_xpath)
+                    if confirm_button_frame.is_visible():
+                        # Get button text to verify
+                        try:
+                            button_text = confirm_button_frame.inner_text()
+                            logger.info(f"Found Confirm button in frame with text: '{button_text}'")
+                        except:
+                            logger.info("Could not retrieve Confirm button text from frame")
+                        
+                        confirm_button_frame.click()
+                        logger.info("Confirm button clicked in frame")
+                        confirm_clicked = True
+                        page.wait_for_timeout(2000)
+                        break
+                except Exception as e:
+                    logger.info(f"Frame Confirm button failed: {e}")
+                    continue
+        
+        # Try alternative selectors for Confirm button if XPath fails
+        if not confirm_clicked:
+            logger.info("Trying alternative selectors for Confirm button...")
+            alternative_selectors = [
+                "button:has-text('Confirm')",
+                "div:has-text('Confirm')",
+                "button:has-text('OK')",
+                "button:has-text('Apply')",
+                "button:has-text('Done')",
+                "[data-testid*='confirm']",
+                "[class*='confirm']"
+            ]
+            
+            # Try on main page
+            for selector in alternative_selectors:
+                try:
+                    element = page.locator(selector).first
+                    if element.is_visible():
+                        # Get button text to verify
+                        try:
+                            button_text = element.inner_text()
+                            logger.info(f"Found Confirm button with alternative selector with text: '{button_text}'")
+                        except:
+                            logger.info("Could not retrieve button text with alternative selector")
+                        
+                        element.click()
+                        logger.info(f"Confirm button clicked using selector: {selector}")
+                        confirm_clicked = True
+                        page.wait_for_timeout(2000)
+                        break
+                except:
+                    continue
+            
+            # Try in frames
+            if not confirm_clicked:
+                for frame in page.frames:
+                    for selector in alternative_selectors:
+                        try:
+                            element = frame.locator(selector).first
+                            if element.is_visible():
+                                # Get button text to verify
+                                try:
+                                    button_text = element.inner_text()
+                                    logger.info(f"Found Confirm button in frame with alternative selector with text: '{button_text}'")
+                                except:
+                                    logger.info("Could not retrieve button text from frame with alternative selector")
+                                
+                                element.click()
+                                logger.info(f"Confirm button clicked in frame using selector: {selector}")
+                                confirm_clicked = True
+                                page.wait_for_timeout(2000)
+                                break
+                        except:
+                            continue
+                    if confirm_clicked:
+                        break
+        
+        if confirm_clicked:
+            logger.info(f"Successfully selected custom date: {target_date.strftime('%d-%m-%Y')} and confirmed")
+            return True
+        else:
+            logger.warning("Could not find or click Confirm button")
+            return False
     else:
-        logger.warning("Could not find or click Yesterday option using any method.")
+        logger.warning(f"Could not find day {target_day} in calendar")
         return False
 
 # === Main Function ===
@@ -413,11 +623,11 @@ def open_and_cycle_outlets():
         logger.error("Cannot proceed without Google Sheets connection")
         return
     
-    # Automatically use yesterday's date
-    yesterday = datetime.now() - timedelta(days=1)
-    formatted_date = yesterday.strftime("%Y-%m-%d")  # Format as YYYY-MM-DD
+    # Calculate target date (2 days before today)
+    target_date = datetime.now() - timedelta(days=2)
+    formatted_date = target_date.strftime("%Y-%m-%d")  # Format as YYYY-MM-DD
     
-    print(f"📅 Using yesterday's date: {formatted_date}")
+    print(f"Using target date (2 days before today): {formatted_date}")
 
     with sync_playwright() as p:
         try:
@@ -451,7 +661,7 @@ def open_and_cycle_outlets():
                 logger.info("No 'No! Not needed' popup found or already closed.")
 
             # === Date Selection ===
-            logger.info("Opening Filter and selecting Yesterday...")
+            logger.info("Opening Filter and selecting Custom date...")
 
             # Open Filter
             for frame in page.frames:
@@ -463,16 +673,16 @@ def open_and_cycle_outlets():
                         break
                 except: continue
 
-            # Select Yesterday option immediately after opening filter
-            if not select_yesterday_option(page):
-                logger.warning("Yesterday selection failed, but continuing...")
+            # Select Custom date option and pick specific date
+            if not select_custom_date_option(page, target_date):
+                logger.warning("Custom date selection failed, but continuing...")
 
-            # Go directly to "Filter by outlets" after selecting Yesterday
+            # Go directly to "Filter by outlets" after selecting custom date
             logger.info("Looking for 'Filter by outlets' element...")
             filter_outlets_clicked = False
             
-            # Add extra wait time for UI to update after Yesterday selection
-            logger.info("Waiting for UI to update after Yesterday selection...")
+            # Add extra wait time for UI to update after date selection
+            logger.info("Waiting for UI to update after custom date selection...")
             page.wait_for_timeout(2000)
             
             # Method 1: Use the specific XPath provided by user
@@ -605,13 +815,13 @@ def open_and_cycle_outlets():
                 except Exception as debug_e:
                     logger.info(f"DEBUG failed: {debug_e}")
 
-            # Click Select All after Yesterday selection and Filter by outlets
+            # Click Select All after custom date selection and Filter by outlets
             for frame in page.frames:
                 try:
                     select_all_initial = frame.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div[2]/div/div[2]/div[2]/div")
                     if select_all_initial.is_visible():
                         select_all_initial.click()
-                        logger.info("Select All clicked after Yesterday selection")
+                        logger.info("Select All clicked after custom date selection")
                         page.wait_for_timeout(1500)
                         break
                 except: continue
@@ -635,9 +845,9 @@ def open_and_cycle_outlets():
                                     break
                             except: continue
                         
-                        # Select Yesterday again for subsequent RIDs
-                        if not select_yesterday_option(page):
-                            logger.warning("Yesterday selection failed for subsequent RID, but continuing...")
+                        # Select Custom date again for subsequent RIDs
+                        if not select_custom_date_option(page, target_date):
+                            logger.warning("Custom date selection failed for subsequent RID, but continuing...")
                         
                         # Click "Filter by outlets" again for subsequent RIDs
                         logger.info("Clicking 'Filter by outlets' for RID selection...")
@@ -855,7 +1065,7 @@ def open_and_cycle_outlets():
 
 # === Run Script ===
 if __name__ == "__main__":
-    print("Starting Complete Swiggy Scraper with Gemini AI")
+    print("Starting Complete Swiggy Scraper with Custom Date Selection")
     print("Extracting ALL metrics: Orders, Customers, Ads, Performance")
     print(f"Gemini Status: {'Available' if model else 'Not Available (using regex fallback)'}")
     open_and_cycle_outlets()
