@@ -40,29 +40,29 @@ if __name__ == "__main__":
     # except Exception as e:
     #     print(f"Swiggy Complaints scraper failed: {e}")
 
-    # --- Swiggy Reviews ---
-    # try:
-    #     print("\nStep 2: Fetching Swiggy Reviews...")
-    #     scrape_swiggy_reviews()
-    #     print("Swiggy Reviews completed")
-    # except Exception as e:
-    #     print(f"Swiggy Reviews scraper failed: {e}")
+    #--- Swiggy Reviews ---
+    try:
+        print("\nStep 2: Fetching Swiggy Reviews...")
+        scrape_swiggy_reviews()
+        print("Swiggy Reviews completed")
+    except Exception as e:
+        print(f"Swiggy Reviews scraper failed: {e}")
 
     # --- Swiggy Main Dashboard ---
-    # try:
-    #     print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
-    #     scrape_swiggy_main()
-    #     print("Swiggy Main Dashboard completed")
-    # except Exception as e:
-    #     print(f"Swiggy Main Dashboard scraper failed: {e}")
+    try:
+        print("\nStep 3: Running Swiggy Main Dashboard Scraper...")
+        scrape_swiggy_main()
+        print("Swiggy Main Dashboard completed")
+    except Exception as e:
+        print(f"Swiggy Main Dashboard scraper failed: {e}")
 
-    # --- Zomato Complaints ---
-    # try:
-    #     print("\nStep 4: Fetching Zomato Complaints...")
-    #     scrape_zomato_complaints()
-    #     print("Zomato Complaints completed")
-    # except Exception as e:
-    #     print(f"Zomato Complaints scraper failed: {e}")
+    #--- Zomato Complaints ---
+    try:
+        print("\nStep 4: Fetching Zomato Complaints...")
+        scrape_zomato_complaints()
+        print("Zomato Complaints completed")
+    except Exception as e:
+        print(f"Zomato Complaints scraper failed: {e}")
 
     # --- Zomato Reviews ---
     # try:
@@ -73,11 +73,11 @@ if __name__ == "__main__":
     #     print(f"Zomato Reviews scraper failed: {e}")
 
     # --- Zomato Main Dashboard ---
-    try:
-        print("\nRunning Zomato Main Dashboard Scraper...")
-        scrape_zomato_main(zomato_outlet_ids, zomato_date_label)
-        print("Zomato Main Dashboard completed")
-    except Exception as e:
-        print(f"Zomato Main Dashboard scraper failed: {e}")
+    # try:
+    #     print("\nRunning Zomato Main Dashboard Scraper...")
+    #     scrape_zomato_main(zomato_outlet_ids, zomato_date_label)
+    #     print("Zomato Main Dashboard completed")
+    # except Exception as e:
+    #     print(f"Zomato Main Dashboard scraper failed: {e}")
 
-    print("\nZomato Main Dashboard scraping task complete.")
+    # print("\nZomato Main Dashboard scraping task complete.")
