@@ -41,12 +41,12 @@ if __name__ == "__main__":
     #     print(f"Swiggy Complaints scraper failed: {e}")
 
     #--- Swiggy Reviews ---
-    try:
-        print("\nStep 2: Fetching Swiggy Reviews...")
-        scrape_swiggy_reviews()
-        print("Swiggy Reviews completed")
-    except Exception as e:
-        print(f"Swiggy Reviews scraper failed: {e}")
+    # try:
+    #     print("\nStep 2: Fetching Swiggy Reviews...")
+    #     scrape_swiggy_reviews()
+    #     print("Swiggy Reviews completed")
+    # except Exception as e:
+    #     print(f"Swiggy Reviews scraper failed: {e}")
 
     # --- Swiggy Main Dashboard ---
     try:
