@@ -289,292 +289,299 @@ def convert_value(val):
         logger.warning(f"Could not convert value to number: {val}")
         return "N/A"
 
-# === ENHANCED Function to select Custom date option and pick specific date ===
+# === FIXED Function to select Custom date option and pick specific date ===
 def select_custom_date_option(page, target_date):
-    """Enhanced date selection optimized for server environments like Render."""
+    """Selects the Custom option and picks the target date from calendar - FIXED FOR RENDER"""
     logger.info(f"Selecting Custom date option and picking date: {target_date.strftime('%d-%m-%Y')}...")
     
-    # Enhanced waiting function with retries
-    def wait_with_retries(locator, timeout=20000, retries=3):
-        for attempt in range(retries):
-            try:
-                locator.wait_for(state='visible', timeout=timeout)
-                return True
-            except Exception as e:
-                logger.info(f"Wait attempt {attempt + 1} failed: {e}")
-                page.wait_for_timeout(3000)  # Longer wait between retries
-        return False
+    # More generous timeouts for cloud environments
+    page.set_default_timeout(45000)
     
-    # === STEP 1: Click Custom Button ===
-    custom_xpath = "xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div/div/div[7]/div[2]/div"
+    # Step 1: Find and click Custom button with multiple strategies
     custom_clicked = False
     
-    # Method 1: Enhanced XPath clicking
-    try:
-        custom_button = page.locator(custom_xpath)
-        if wait_with_retries(custom_button, timeout=25000):
-            # Scroll into view and wait
-            custom_button.scroll_into_view_if_needed()
-            page.wait_for_timeout(3000)  # Longer wait for server
+    # Strategy 1: Try multiple Custom button selectors with increased timeouts
+    custom_selectors = [
+        "xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div/div/div[7]/div[2]/div",
+        "text=Custom",
+        "button:has-text('Custom')",
+        "div:has-text('Custom')",
+        "*:has-text('Custom')",
+        "[data-testid*='custom']",
+        "[class*='custom']"
+    ]
+    
+    # Try each selector with proper wait and retry logic
+    for selector_idx, selector in enumerate(custom_selectors):
+        if custom_clicked:
+            break
             
-            # Try force click first (better for server environments)
+        logger.info(f"Trying Custom selector {selector_idx + 1}: {selector}")
+        
+        # Try on main page with retry logic
+        for attempt in range(3):  # 3 attempts per selector
             try:
-                custom_button.click(force=True, timeout=15000)
-                logger.info("Custom button clicked with force using XPath")
-                custom_clicked = True
-            except:
-                # Fallback to regular click
-                custom_button.click(timeout=15000)
-                logger.info("Custom button clicked using XPath")
-                custom_clicked = True
+                # Wait for page to be ready
+                page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_timeout(2000)  # Extra wait for cloud environments
                 
-            page.wait_for_timeout(5000)  # Much longer wait for UI update
-    except Exception as e:
-        logger.info(f"XPath method failed: {e}")
-    
-    # Method 2: Try in frames with enhanced reliability
-    if not custom_clicked:
-        logger.info("Trying Custom button in frames...")
-        frames = page.frames
-        logger.info(f"Found {len(frames)} frames to check")
-        
-        for frame_idx, frame in enumerate(frames):
-            try:
-                logger.info(f"Checking frame {frame_idx + 1}/{len(frames)}")
-                custom_button_frame = frame.locator(custom_xpath)
-                if wait_with_retries(custom_button_frame, timeout=15000):
-                    try:
-                        custom_button_frame.scroll_into_view_if_needed()
-                        page.wait_for_timeout(2000)
-                        custom_button_frame.click(force=True, timeout=15000)
-                        logger.info(f"Custom button clicked in frame {frame_idx + 1} with force")
-                        custom_clicked = True
-                        page.wait_for_timeout(5000)
-                        break
-                    except:
-                        custom_button_frame.click(timeout=15000)
-                        logger.info(f"Custom button clicked in frame {frame_idx + 1} (regular)")
-                        custom_clicked = True
-                        page.wait_for_timeout(5000)
-                        break
-            except Exception as e:
-                logger.info(f"Frame {frame_idx + 1} failed: {e}")
-                continue
-    
-    # Method 3: Alternative selectors with enhanced search
-    if not custom_clicked:
-        logger.info("Trying alternative selectors for Custom...")
-        
-        selectors = [
-            "text=Custom",
-            "button:has-text('Custom')",
-            "div:has-text('Custom')",
-            "span:has-text('Custom')",
-            "[data-testid*='custom' i]",
-            "[class*='custom' i]",
-            "[id*='custom' i]",
-            "*:has-text('Custom'):visible"
-        ]
-        
-        # Try on main page first
-        for selector in selectors:
-            try:
                 element = page.locator(selector).first
-                if wait_with_retries(element, timeout=12000):
-                    element.scroll_into_view_if_needed()
-                    page.wait_for_timeout(2000)
+                # Explicitly wait for element to be visible and enabled
+                element.wait_for(state="visible", timeout=15000)
+                
+                if element.is_visible() and element.is_enabled():
+                    # Scroll element into view if needed
                     try:
-                        element.click(force=True, timeout=15000)
-                        logger.info(f"Custom clicked with force using: {selector}")
-                        custom_clicked = True
-                        break
-                    except:
-                        element.click(timeout=15000)
-                        logger.info(f"Custom clicked using: {selector}")
-                        custom_clicked = True
-                        break
-            except:
-                continue
-        
-        # Try in frames
-        if not custom_clicked:
-            for frame in page.frames:
-                for selector in selectors:
-                    try:
-                        element = frame.locator(selector).first
-                        if wait_with_retries(element, timeout=8000):
-                            element.click(force=True, timeout=15000)
-                            logger.info(f"Custom clicked in frame using: {selector}")
-                            custom_clicked = True
-                            break
-                    except:
-                        continue
-                if custom_clicked:
-                    break
-    
-    if not custom_clicked:
-        logger.error("Could not find or click Custom option")
-        return False
-    
-    # Longer wait for calendar to load in server environment
-    logger.info("Waiting for calendar to load...")
-    page.wait_for_timeout(8000)  # Increased from 2000 to 8000
-    
-    # === STEP 2: Select the specific day ===
-    logger.info(f"Looking for day: {target_date.day}")
-    target_day_str = str(target_date.day)
-    day_clicked = False
-    
-    base_xpath = "/html/body/div[1]/div/div/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[3]/div/div[2]/div/div/div/div[2]"
-    
-    # Enhanced day selection with more comprehensive search
-    for i in range(1, 50):  # Increased range for full calendar view
-        button_xpath = f"xpath={base_xpath}/button[{i}]/abbr"
-        
-        # Try on main page
-        try:
-            day_button = page.locator(button_xpath)
-            if wait_with_retries(day_button, timeout=8000):
-                try:
-                    day_text = day_button.inner_text(timeout=5000).strip()
-                    logger.info(f"Found button {i} with text: '{day_text}'")
-                    
-                    if day_text == target_day_str:
-                        # Enhanced double-click with better timing and force
-                        day_button.scroll_into_view_if_needed()
+                        element.scroll_into_view_if_needed()
                         page.wait_for_timeout(1000)
-                        
-                        # First click with force
-                        day_button.click(force=True, timeout=15000)
-                        logger.info(f"First click on day {target_date.day} successful (force)")
-                        page.wait_for_timeout(1500)  # Longer pause between clicks
-                        
-                        # Second click with force
-                        day_button.click(force=True, timeout=15000)
-                        logger.info(f"Second click on day {target_date.day} successful (force)")
-                        day_clicked = True
-                        page.wait_for_timeout(3000)  # Longer wait after double-click
-                        break
-                except Exception as day_e:
-                    logger.info(f"Day text extraction/click failed: {day_e}")
-        except:
-            pass
+                    except:
+                        pass
+                    
+                    # Get text for verification
+                    try:
+                        button_text = element.inner_text()
+                        logger.info(f"Found Custom button with text: '{button_text}'")
+                    except:
+                        logger.info("Custom button found but couldn't get text")
+                    
+                    # Click with retry
+                    element.click()
+                    logger.info(f"Custom button clicked using selector: {selector}")
+                    custom_clicked = True
+                    
+                    # Wait for calendar to appear
+                    page.wait_for_timeout(3000)
+                    break
+                    
+            except Exception as e:
+                logger.info(f"Attempt {attempt + 1} failed for selector {selector}: {e}")
+                if attempt < 2:  # Not the last attempt
+                    page.wait_for_timeout(2000)  # Wait before retry
+                continue
         
         # Try in frames if main page didn't work
-        if not day_clicked:
+        if not custom_clicked:
+            logger.info(f"Trying selector {selector} in frames...")
             for frame in page.frames:
-                try:
-                    day_button_frame = frame.locator(button_xpath)
-                    if wait_with_retries(day_button_frame, timeout=5000):
-                        day_text = day_button_frame.inner_text(timeout=3000).strip()
-                        if day_text == target_day_str:
-                            # Double click in frame with force
-                            day_button_frame.click(force=True, timeout=15000)
-                            page.wait_for_timeout(1500)
-                            day_button_frame.click(force=True, timeout=15000)
-                            logger.info(f"Day {target_date.day} clicked in frame with force")
-                            day_clicked = True
+                if custom_clicked:
+                    break
+                    
+                for attempt in range(2):  # 2 attempts per frame
+                    try:
+                        frame.wait_for_load_state("networkidle", timeout=8000)
+                        element = frame.locator(selector).first
+                        element.wait_for(state="visible", timeout=10000)
+                        
+                        if element.is_visible() and element.is_enabled():
+                            try:
+                                element.scroll_into_view_if_needed()
+                                page.wait_for_timeout(500)
+                            except:
+                                pass
+                            
+                            try:
+                                button_text = element.inner_text()
+                                logger.info(f"Found Custom button in frame with text: '{button_text}'")
+                            except:
+                                logger.info("Custom button found in frame but couldn't get text")
+                            
+                            element.click()
+                            logger.info(f"Custom button clicked in frame using selector: {selector}")
+                            custom_clicked = True
                             page.wait_for_timeout(3000)
                             break
-                except:
-                    continue
-            if day_clicked:
-                break
+                            
+                    except Exception as e:
+                        logger.info(f"Frame attempt {attempt + 1} failed: {e}")
+                        if attempt < 1:
+                            page.wait_for_timeout(1000)
+                        continue
     
-    if not day_clicked:
-        logger.error(f"Could not find or click day {target_date.day}")
+    if not custom_clicked:
+        logger.error("Could not find or click Custom button with any method")
         return False
     
-    # === STEP 3: Click Confirm Button ===
+    # Step 2: Select the specific date with enhanced logic
+    logger.info(f"Calendar opened, selecting date: {target_date.day}")
+    target_day = str(target_date.day)
+    
+    # Wait for calendar to be fully loaded
+    page.wait_for_timeout(2000)
+    
+    # Multiple calendar selectors to try
+    calendar_base_xpaths = [
+        "/html/body/div[1]/div/div/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[3]/div/div[2]/div/div/div/div[2]",
+        "//div[contains(@class,'calendar')]//button",
+        "//div[contains(@class,'date-picker')]//button",
+        "//button[contains(@class,'date')]",
+        "//button//abbr"
+    ]
+    
+    day_clicked = False
+    
+    for base_xpath in calendar_base_xpaths:
+        if day_clicked:
+            break
+            
+        logger.info(f"Trying calendar base path: {base_xpath}")
+        
+        # Try different button indexing approaches
+        for i in range(1, 45):  # Check up to 44 buttons (more than a month)
+            if day_clicked:
+                break
+                
+            if base_xpath.startswith("/html"):
+                button_xpath = f"{base_xpath}/button[{i}]/abbr"
+            else:
+                button_xpath = f"({base_xpath})[{i}]"
+            
+            # Try on main page
+            try:
+                day_element = page.locator(f"xpath={button_xpath}")
+                day_element.wait_for(state="visible", timeout=3000)
+                
+                if day_element.is_visible():
+                    day_text = day_element.inner_text().strip()
+                    if day_text == target_day:
+                        logger.info(f"Found target day {target_day} at button {i}")
+                        
+                        # Double click as requested
+                        day_element.click()
+                        logger.info(f"First click on day {target_day}")
+                        page.wait_for_timeout(800)
+                        
+                        day_element.click()
+                        logger.info(f"Second click on day {target_day}")
+                        day_clicked = True
+                        page.wait_for_timeout(1500)
+                        break
+                        
+            except Exception as e:
+                # Try in frames
+                for frame in page.frames:
+                    try:
+                        day_element = frame.locator(f"xpath={button_xpath}")
+                        day_element.wait_for(state="visible", timeout=2000)
+                        
+                        if day_element.is_visible():
+                            day_text = day_element.inner_text().strip()
+                            if day_text == target_day:
+                                logger.info(f"Found target day {target_day} in frame at button {i}")
+                                
+                                # Double click as requested
+                                day_element.click()
+                                logger.info(f"First click on day {target_day} in frame")
+                                page.wait_for_timeout(800)
+                                
+                                day_element.click()
+                                logger.info(f"Second click on day {target_day} in frame")
+                                day_clicked = True
+                                page.wait_for_timeout(1500)
+                                break
+                                
+                    except:
+                        continue
+                if day_clicked:
+                    break
+    
+    if not day_clicked:
+        logger.error(f"Could not find or click day {target_day}")
+        return False
+    
+    # Step 3: Click Confirm button with enhanced logic
     logger.info("Looking for Confirm button...")
-    confirm_xpath = "xpath=//*[@id=\"mfe-root\"]/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[4]/div"
-    confirm_clicked = False
+    page.wait_for_timeout(2000)  # Wait for UI to update
     
-    # Wait longer for UI to update after day selection
-    page.wait_for_timeout(4000)  # Increased wait time
-    
-    # Enhanced confirm button selection with multiple methods
     confirm_selectors = [
-        confirm_xpath,
+        "xpath=//*[@id=\"mfe-root\"]/div/div[2]/div[2]/div[2]/div/div[3]/div/div/div[4]/div",
         "button:has-text('Confirm')",
-        "div:has-text('Confirm')", 
+        "div:has-text('Confirm')",
         "button:has-text('OK')",
         "button:has-text('Apply')",
         "button:has-text('Done')",
-        "[data-testid*='confirm' i]",
-        "[class*='confirm' i]",
-        "*:has-text('Confirm'):visible",
-        "*:has-text('OK'):visible"
+        "*:has-text('Confirm')",
+        "[data-testid*='confirm']"
     ]
     
-    for selector in confirm_selectors:
-        # Try on main page
-        try:
-            if selector.startswith("xpath="):
-                element = page.locator(selector)
-            else:
-                element = page.locator(selector).first
-                
-            if wait_with_retries(element, timeout=12000):
-                try:
-                    button_text = element.inner_text(timeout=3000)
-                    logger.info(f"Found confirm element with text: '{button_text}'")
-                except:
-                    logger.info(f"Found confirm element with selector: {selector}")
-                
-                # Try clicking with enhanced method
-                try:
-                    element.scroll_into_view_if_needed()
-                    page.wait_for_timeout(2000)
-                    element.click(force=True, timeout=15000)
-                    logger.info(f"Confirm clicked with force using: {selector}")
-                    confirm_clicked = True
-                    break
-                except:
-                    try:
-                        element.click(timeout=15000)
-                        logger.info(f"Confirm clicked using: {selector}")
-                        confirm_clicked = True
-                        break
-                    except Exception as click_e:
-                        logger.info(f"Confirm click failed with {selector}: {click_e}")
-        except Exception as sel_e:
-            logger.info(f"Confirm selector {selector} failed: {sel_e}")
-            continue
+    confirm_clicked = False
     
-    # Try in frames if main page failed
-    if not confirm_clicked:
-        logger.info("Trying Confirm button in frames...")
-        for frame in page.frames:
-            for selector in confirm_selectors:
-                try:
-                    if selector.startswith("xpath="):
-                        element = frame.locator(selector)
-                    else:
+    for selector in confirm_selectors:
+        if confirm_clicked:
+            break
+            
+        logger.info(f"Trying Confirm selector: {selector}")
+        
+        # Try on main page with retry
+        for attempt in range(3):
+            try:
+                page.wait_for_timeout(1000)
+                element = page.locator(selector).first
+                element.wait_for(state="visible", timeout=10000)
+                
+                if element.is_visible() and element.is_enabled():
+                    try:
+                        element.scroll_into_view_if_needed()
+                        page.wait_for_timeout(500)
+                    except:
+                        pass
+                    
+                    try:
+                        button_text = element.inner_text()
+                        logger.info(f"Found Confirm button with text: '{button_text}'")
+                    except:
+                        logger.info("Confirm button found but couldn't get text")
+                    
+                    element.click()
+                    logger.info(f"Confirm button clicked using: {selector}")
+                    confirm_clicked = True
+                    page.wait_for_timeout(3000)
+                    break
+                    
+            except Exception as e:
+                logger.info(f"Confirm attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    page.wait_for_timeout(1500)
+                continue
+        
+        # Try in frames if main page didn't work
+        if not confirm_clicked:
+            for frame in page.frames:
+                if confirm_clicked:
+                    break
+                    
+                for attempt in range(2):
+                    try:
                         element = frame.locator(selector).first
+                        element.wait_for(state="visible", timeout=8000)
                         
-                    if wait_with_retries(element, timeout=8000):
-                        try:
-                            element.click(force=True, timeout=15000)
-                            logger.info(f"Confirm clicked in frame with force using: {selector}")
-                            confirm_clicked = True
-                            break
-                        except:
+                        if element.is_visible() and element.is_enabled():
                             try:
-                                element.click(timeout=15000)
-                                logger.info(f"Confirm clicked in frame using: {selector}")
-                                confirm_clicked = True
-                                break
+                                element.scroll_into_view_if_needed()
+                                page.wait_for_timeout(500)
                             except:
-                                continue
-                except:
-                    continue
-            if confirm_clicked:
-                break
+                                pass
+                            
+                            try:
+                                button_text = element.inner_text()
+                                logger.info(f"Found Confirm button in frame with text: '{button_text}'")
+                            except:
+                                logger.info("Confirm button found in frame but couldn't get text")
+                            
+                            element.click()
+                            logger.info(f"Confirm button clicked in frame using: {selector}")
+                            confirm_clicked = True
+                            page.wait_for_timeout(3000)
+                            break
+                            
+                    except Exception as e:
+                        if attempt < 1:
+                            page.wait_for_timeout(1000)
+                        continue
     
     if confirm_clicked:
-        page.wait_for_timeout(5000)  # Longer wait for UI to update
-        logger.info(f"Successfully selected custom date: {target_date.strftime('%d-%m-%Y')}")
+        logger.info(f"Successfully selected and confirmed custom date: {target_date.strftime('%d-%m-%Y')}")
+        # Extra wait for cloud environments
+        page.wait_for_timeout(4000)
         return True
     else:
         logger.error("Could not find or click Confirm button")
@@ -596,77 +603,49 @@ def open_and_cycle_outlets():
 
     with sync_playwright() as p:
         try:
-            # Enhanced browser launch for server environment
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--window-size=1920,1080',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor'
-                ]
-            )
-            context = browser.new_context(
-                storage_state="swiggy_login.json",
-                viewport={'width': 1920, 'height': 1080}
-            )
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(storage_state="swiggy_login.json")
             page = context.new_page()
-            page.set_default_timeout(45000)  # Increased timeout for server
+            page.set_default_timeout(45000)  # Increased timeout for cloud environments
 
             logger.info("Opening Swiggy Partner Dashboard...")
-            page.goto("https://partner.swiggy.com/business-metrics/overview/restaurant/121907", timeout=90000)
-            page.wait_for_load_state("networkidle", timeout=60000)
+            page.goto("https://partner.swiggy.com/business-metrics/overview/restaurant/121907", timeout=60000)
+            page.wait_for_load_state("networkidle")
 
-            # Enhanced popup handling
-            popup_selectors = [
-                "xpath=/html/body/div[2]/div[2]/div[3]/button[1]",
-                "text=No! Not needed",
-                "button:has-text('Close')",
-                "button:has-text('Dismiss')"
-            ]
-            
-            for selector in popup_selectors:
-                try:
-                    popup = page.locator(selector).first
-                    if popup.is_visible(timeout=5000):
-                        popup.click(timeout=10000)
-                        logger.info(f"Closed popup using: {selector}")
-                        page.wait_for_timeout(2000)
-                        break
-                except:
-                    continue
+            # Close popup if present
+            try:
+                popup = page.locator("xpath=/html/body/div[2]/div[2]/div[3]/button[1]")
+                if popup.is_visible():
+                    popup.click()
+                    logger.info("Popup closed.")
+                    page.wait_for_timeout(1000)
+            except:
+                logger.info("No popup found or already closed.")
+
+            # Try to close the "No! Not needed" popup if it appears
+            try:
+                no_needed_popup = page.locator("text=No! Not needed").first
+                if no_needed_popup.is_visible():
+                    no_needed_popup.click()
+                    logger.info("Closed 'No! Not needed' popup.")
+                    page.wait_for_timeout(1000)
+            except Exception:
+                logger.info("No 'No! Not needed' popup found or already closed.")
 
             # === Date Selection ===
             logger.info("Opening Filter and selecting Custom date...")
 
-            # Open Filter with enhanced method
-            filter_opened = False
+            # Open Filter
             for frame in page.frames:
                 try:
-                    filter_btn = frame.locator("span:has-text('Filter')")
-                    if filter_btn.is_visible(timeout=10000):
-                        filter_btn.click(force=True, timeout=15000)
-                        page.wait_for_timeout(2000)
+                    if frame.locator("span:has-text('Filter')").is_visible():
+                        frame.locator("span:has-text('Filter')").click()
+                        page.wait_for_timeout(1500)
                         logger.info("Filter opened successfully")
-                        filter_opened = True
                         break
                 except: continue
-            
-            if not filter_opened:
-                # Try on main page if frames failed
-                try:
-                    filter_btn = page.locator("span:has-text('Filter')").first
-                    if filter_btn.is_visible(timeout=10000):
-                        filter_btn.click(force=True, timeout=15000)
-                        page.wait_for_timeout(2000)
-                        logger.info("Filter opened on main page")
-                        filter_opened = True
-                except:
-                    logger.warning("Could not open Filter")
 
-            # Select Custom date option and pick specific date (ENHANCED VERSION)
+            # Select Custom date option and pick specific date
             if not select_custom_date_option(page, target_date):
                 logger.warning("Custom date selection failed, but continuing...")
 
@@ -676,68 +655,146 @@ def open_and_cycle_outlets():
             
             # Add extra wait time for UI to update after date selection
             logger.info("Waiting for UI to update after custom date selection...")
-            page.wait_for_timeout(3000)  # Increased wait time
+            page.wait_for_timeout(2000)
             
-            # Enhanced Filter by outlets selection
-            filter_outlets_selectors = [
-                "xpath=/html/body/div[2]/div/div/div/div[2]/div[1]/div[4]/div",
-                "text=Filter by outlets",
-                "div:has-text('Filter by outlets')",
-                "button:has-text('Filter by outlets')",
-                "*:has-text('outlets'):visible"
-            ]
-            
-            for selector in filter_outlets_selectors:
-                if filter_outlets_clicked:
-                    break
+            # Method 1: Use the specific XPath provided by user
+            try:
+                filter_outlets_xpath = page.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[1]/div[4]/div")
+                if filter_outlets_xpath.is_visible():
+                    # Get button text to verify
+                    try:
+                        button_text = filter_outlets_xpath.inner_text()
+                        logger.info(f"Found Filter by outlets button with text: '{button_text}'")
+                    except:
+                        logger.info("Could not retrieve Filter by outlets button text")
                     
-                # Try on main page
+                    filter_outlets_xpath.click()
+                    logger.info("Filter by outlets clicked using specific XPath on main page.")
+                    filter_outlets_clicked = True
+                else:
+                    logger.info("Filter by outlets XPath not visible on main page")
+            except Exception as e:
+                logger.info(f"Main page Filter by outlets XPath failed: {e}")
+            
+            # Method 2: Try the XPath in frames if main page didn't work
+            if not filter_outlets_clicked:
+                logger.info("Trying Filter by outlets XPath in frames...")
+                for frame in page.frames:
+                    try:
+                        filter_outlets_xpath_frame = frame.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[1]/div[4]/div")
+                        if filter_outlets_xpath_frame.is_visible():
+                            # Get button text to verify
+                            try:
+                                button_text = filter_outlets_xpath_frame.inner_text()
+                                logger.info(f"Found Filter by outlets button in frame with text: '{button_text}'")
+                            except:
+                                logger.info("Could not retrieve Filter by outlets button text from frame")
+                            
+                            filter_outlets_xpath_frame.click()
+                            logger.info("Filter by outlets clicked using specific XPath in frame.")
+                            filter_outlets_clicked = True
+                            break
+                    except Exception as e:
+                        logger.info(f"Frame Filter by outlets XPath failed: {e}")
+                        continue
+            
+            # Method 3: Try by text content if XPath fails
+            if not filter_outlets_clicked:
+                logger.info("Trying Filter by outlets using text content...")
                 try:
-                    if selector.startswith("xpath="):
-                        element = page.locator(selector)
-                    else:
-                        element = page.locator(selector).first
-                        
-                    if element.is_visible(timeout=8000):
-                        element.click(force=True, timeout=15000)
-                        logger.info(f"Filter by outlets clicked using: {selector}")
+                    filter_outlets_text = page.locator("text=Filter by outlets")
+                    if filter_outlets_text.is_visible():
+                        filter_outlets_text.click()
+                        logger.info("Filter by outlets clicked using text locator on main page.")
                         filter_outlets_clicked = True
-                        page.wait_for_timeout(2000)
-                        break
-                except:
-                    pass
+                    else:
+                        # Try in frames
+                        for frame in page.frames:
+                            try:
+                                if frame.locator("text=Filter by outlets").is_visible():
+                                    frame.locator("text=Filter by outlets").click()
+                                    logger.info("Filter by outlets clicked using text locator in frame.")
+                                    filter_outlets_clicked = True
+                                    break
+                            except:
+                                continue
+                except Exception as e:
+                    logger.info(f"Text locator failed: {e}")
+            
+            # Method 4: Try alternative selectors as last resort
+            if not filter_outlets_clicked:
+                logger.info("Trying alternative selectors for 'Filter by outlets'...")
+                alternative_selectors = [
+                    "div:has-text('Filter by outlets')",
+                    "button:has-text('Filter by outlets')",
+                    "span:has-text('Filter by outlets')",
+                    "text*=outlets",
+                    "[data-testid*='outlet']",
+                    "[class*='outlet']",
+                    "div:has-text('outlets')"
+                ]
                 
-                # Try in frames
+                for selector in alternative_selectors:
+                    try:
+                        element = page.locator(selector).first
+                        if element.is_visible():
+                            element.click()
+                            logger.info(f"Filter by outlets clicked using selector: {selector}")
+                            filter_outlets_clicked = True
+                            break
+                    except:
+                        continue
+                
+                # Try alternative selectors in frames too
                 if not filter_outlets_clicked:
                     for frame in page.frames:
-                        try:
-                            if selector.startswith("xpath="):
-                                element = frame.locator(selector)
-                            else:
+                        for selector in alternative_selectors:
+                            try:
                                 element = frame.locator(selector).first
-                                
-                            if element.is_visible(timeout=5000):
-                                element.click(force=True, timeout=15000)
-                                logger.info(f"Filter by outlets clicked in frame using: {selector}")
-                                filter_outlets_clicked = True
-                                page.wait_for_timeout(2000)
-                                break
-                        except:
-                            continue
-                    if filter_outlets_clicked:
-                        break
+                                if element.is_visible():
+                                    element.click()
+                                    logger.info(f"Filter by outlets clicked in frame using selector: {selector}")
+                                    filter_outlets_clicked = True
+                                    break
+                            except:
+                                continue
+                        if filter_outlets_clicked:
+                            break
             
-            if not filter_outlets_clicked:
-                logger.warning("Could not find or click 'Filter by outlets'")
+            if filter_outlets_clicked:
+                page.wait_for_timeout(1500)
+                logger.info("Successfully clicked Filter by outlets - proceeding with outlet selection logic.")
+            else:
+                logger.warning("Could not find or click 'Filter by outlets' using any method.")
+                logger.info("Debug: Checking what elements are visible on page...")
+                try:
+                    # Debug: Show all visible text on page
+                    page_text = page.locator('body').inner_text()
+                    logger.info(f"DEBUG - Page text contains 'outlets': {'outlets' in page_text.lower()}")
+                    logger.info(f"DEBUG - Page text contains 'filter': {'filter' in page_text.lower()}")
+                    logger.info(f"DEBUG - Full page text sample (first 1000 chars): {page_text[:1000]}...")
+                    
+                    # Debug: Check if there are any clickable elements with "outlet" in text
+                    outlet_elements = page.locator("*:has-text('outlet')").all()
+                    logger.info(f"DEBUG - Found {len(outlet_elements)} elements containing 'outlet'")
+                    for i, elem in enumerate(outlet_elements[:5]):  # Show first 5
+                        try:
+                            elem_text = elem.inner_text()
+                            logger.info(f"DEBUG - Element {i+1}: '{elem_text}'")
+                        except:
+                            pass
+                            
+                except Exception as debug_e:
+                    logger.info(f"DEBUG failed: {debug_e}")
 
             # Click Select All after custom date selection and Filter by outlets
             for frame in page.frames:
                 try:
                     select_all_initial = frame.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div[2]/div/div[2]/div[2]/div")
-                    if select_all_initial.is_visible(timeout=8000):
-                        select_all_initial.click(force=True, timeout=15000)
+                    if select_all_initial.is_visible():
+                        select_all_initial.click()
                         logger.info("Select All clicked after custom date selection")
-                        page.wait_for_timeout(2000)
+                        page.wait_for_timeout(1500)
                         break
                 except: continue
 
@@ -753,9 +810,9 @@ def open_and_cycle_outlets():
                         for frame in page.frames:
                             try:
                                 filter_btn = frame.locator("span:has-text('Filter')")
-                                if filter_btn.is_visible(timeout=8000):
-                                    filter_btn.click(force=True, timeout=15000)
-                                    page.wait_for_timeout(2000)
+                                if filter_btn.is_visible():
+                                    filter_btn.click()
+                                    page.wait_for_timeout(1500)
                                     logger.info("Main Filter reopened")
                                     break
                             except: continue
@@ -764,61 +821,75 @@ def open_and_cycle_outlets():
                         if not select_custom_date_option(page, target_date):
                             logger.warning("Custom date selection failed for subsequent RID, but continuing...")
                         
-                        # Click "Filter by outlets" again for subsequent RIDs with enhanced method
+                        # Click "Filter by outlets" again for subsequent RIDs
                         logger.info("Clicking 'Filter by outlets' for RID selection...")
                         filter_outlets_clicked = False
                         
-                        for selector in filter_outlets_selectors:
-                            if filter_outlets_clicked:
-                                break
-                            try:
-                                if selector.startswith("xpath="):
-                                    element = page.locator(selector)
-                                else:
-                                    element = page.locator(selector).first
-                                    
-                                if element.is_visible(timeout=8000):
-                                    element.click(force=True, timeout=15000)
-                                    logger.info(f"Filter by outlets clicked using: {selector}")
+                        # Try in main page first
+                        try:
+                            filter_outlets_text = page.locator("text=Filter by outlets")
+                            if filter_outlets_text.is_visible():
+                                filter_outlets_text.click()
+                                logger.info("Filter by outlets clicked using main page text locator.")
+                                filter_outlets_clicked = True
+                            else:
+                                filter_outlets_xpath = page.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[1]/div[4]/div")
+                                if filter_outlets_xpath.is_visible():
+                                    filter_outlets_xpath.click()
+                                    logger.info("Filter by outlets clicked using main page XPath.")
                                     filter_outlets_clicked = True
-                                    break
-                            except:
-                                pass
-                            
-                            # Try in frames
+                        except Exception as e:
+                            logger.info(f"Main page search failed: {e}")
+                        
+                        # Try in frames if main page didn't work
+                        if not filter_outlets_clicked:
+                            logger.info("Searching for 'Filter by outlets' in frames...")
                             for frame in page.frames:
                                 try:
-                                    if selector.startswith("xpath="):
-                                        element = frame.locator(selector)
-                                    else:
-                                        element = frame.locator(selector).first
-                                        
-                                    if element.is_visible(timeout=5000):
-                                        element.click(force=True, timeout=15000)
-                                        logger.info(f"Filter by outlets clicked in frame using: {selector}")
+                                    if frame.locator("text=Filter by outlets").is_visible():
+                                        frame.locator("text=Filter by outlets").click()
+                                        logger.info("Filter by outlets clicked using frame text locator.")
+                                        filter_outlets_clicked = True
+                                        break
+                                    elif frame.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[1]/div[4]/div").is_visible():
+                                        frame.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[1]/div[4]/div").click()
+                                        logger.info("Filter by outlets clicked using frame XPath.")
+                                        filter_outlets_clicked = True
+                                        break
+                                    elif frame.locator("text*=outlets").is_visible():
+                                        frame.locator("text*=outlets").click()
+                                        logger.info("Filter by outlets clicked using frame partial text.")
                                         filter_outlets_clicked = True
                                         break
                                 except:
                                     continue
-                            if filter_outlets_clicked:
-                                break
                         
                         if filter_outlets_clicked:
-                            page.wait_for_timeout(2000)
+                            page.wait_for_timeout(1500)
+                        else:
+                            logger.warning("Could not find 'Filter by outlets' for RID selection.")
                         
-                        # Reset outlet selection by clicking Select All twice
-                        logger.info("Resetting outlet selection...")
+                        # After reopening filter and clicking Filter by outlets, reset outlet selection
+                        logger.info("Resetting outlet selection by clicking Select All twice...")
                         for frame in page.frames:
                             try:
                                 select_all_reset = frame.locator("xpath=/html/body/div[2]/div/div/div/div[2]/div[2]/div[2]/div/div[2]/div[2]/div")
-                                if select_all_reset.is_visible(timeout=8000):
-                                    select_all_reset.click(force=True, timeout=15000)
-                                    page.wait_for_timeout(1000)
-                                    select_all_reset.click(force=True, timeout=15000)
+                                if select_all_reset.is_visible():
+                                    select_all_reset.click()
+                                    page.wait_for_timeout(500)
+                                    select_all_reset.click()
                                     logger.info("Select All clicked twice to reset outlet selection")
-                                    page.wait_for_timeout(1500)
+                                    page.wait_for_timeout(1000)
                                     break
                             except: continue
+
+                    # Select All clicking logic: First time = once, subsequent times = twice (already done above)
+                    if index == 0:
+                        # For first RID, just click Select All once (this happens in the initial setup above)
+                        logger.info("First RID - Select All was already clicked once in initial setup")
+                    else:
+                        # For subsequent RIDs, Select All was already clicked twice in reset logic above
+                        logger.info("Subsequent RID - Select All was already clicked twice in reset logic")
 
                     # Select specific RID
                     logger.info(f"Selecting specific RID: {rid}")
@@ -826,10 +897,10 @@ def open_and_cycle_outlets():
                     for frame in page.frames:
                         try:
                             rid_locator = frame.locator(f"text={rid}").first
-                            if rid_locator.is_visible(timeout=10000):
-                                rid_locator.click(force=True, timeout=15000)
+                            if rid_locator.is_visible():
+                                rid_locator.click()
                                 logger.info(f"Selected RID: {rid}")
-                                page.wait_for_timeout(1500)
+                                page.wait_for_timeout(1000)
                                 found = True
                                 break
                         except: continue
@@ -842,10 +913,10 @@ def open_and_cycle_outlets():
                     for frame in page.frames:
                         try:
                             apply_btn = frame.locator("button:has-text('Apply')")
-                            if apply_btn.is_visible(timeout=8000):
-                                apply_btn.click(force=True, timeout=15000)
+                            if apply_btn.is_visible():
+                                apply_btn.click()
                                 logger.info("Applied.")
-                                page.wait_for_timeout(4000)  # Longer wait for data to load
+                                page.wait_for_timeout(3000)
                                 break
                         except: continue
 
@@ -857,7 +928,7 @@ def open_and_cycle_outlets():
                     try:
                         # Strategy 1: Look for rupee symbol
                         metric = page.locator("div:has-text('₹')").first
-                        metric.wait_for(timeout=15000)
+                        metric.wait_for(timeout=10000)
                         full_text = metric.inner_text()
                         logger.info("Found content using rupee symbol locator")
                     except PlaywrightTimeoutError:
@@ -866,7 +937,7 @@ def open_and_cycle_outlets():
                             for frame in page.frames:
                                 try:
                                     metric = frame.locator("div:has-text('₹')").first
-                                    metric.wait_for(timeout=8000)
+                                    metric.wait_for(timeout=5000)
                                     full_text = metric.inner_text()
                                     if full_text: 
                                         logger.info("Found content in frame using rupee symbol")
@@ -890,7 +961,7 @@ def open_and_cycle_outlets():
                             for container in containers:
                                 try:
                                     content = page.locator(container).first
-                                    if content.is_visible(timeout=5000):
+                                    if content.is_visible():
                                         full_text = content.inner_text()
                                         if "₹" in full_text or "%" in full_text:
                                             logger.info(f"Found content using {container} selector")
@@ -904,6 +975,21 @@ def open_and_cycle_outlets():
                                 
                         except Exception as e:
                             logger.error(f"Error in broader scraping: {e}")
+
+                    # Debug: Show more of the scraped text
+                    if full_text:
+                        logger.info(f"DEBUG - Full text length: {len(full_text)} characters")
+                        logger.info(f"DEBUG - First 300 chars: {full_text[:300]}...")
+                        
+                        # Look specifically for rupee amounts in the text
+                        rupee_matches = re.findall(r'₹\s*[\d,]+|₹[\d,]+|\u20B9\s*[\d,]+|\u20B9[\d,]+', full_text)
+                        logger.info(f"DEBUG - Found rupee amounts: {rupee_matches}")
+                        
+                        # Look for percentage values
+                        percent_matches = re.findall(r'[\d.]+%', full_text)
+                        logger.info(f"DEBUG - Found percentages: {percent_matches}")
+                    else:
+                        logger.warning("No text content found at all")
 
                     # Save to Sheet with ALL metrics
                     if full_text:
@@ -936,9 +1022,10 @@ def open_and_cycle_outlets():
                     continue
 
                 # Small delay between RIDs
-                time.sleep(3)
+                time.sleep(2)
 
             logger.info(f"\nScraping completed! Successfully processed {successful_scrapes}/{len(RID_LIST)} RIDs")
+            input("Press Enter to close the browser...")
 
         except Exception as e:
             logger.error(f"Fatal error: {e}")
@@ -950,7 +1037,7 @@ def open_and_cycle_outlets():
 
 # === Run Script ===
 if __name__ == "__main__":
-    print("Starting Complete Swiggy Scraper with Enhanced Date Selection for Render")
+    print("Starting Complete Swiggy Scraper with Custom Date Selection")
     print("Extracting ALL metrics: Orders, Customers, Ads, Performance")
     print(f"Gemini Status: {'Available' if model else 'Not Available (using regex fallback)'}")
     open_and_cycle_outlets()
